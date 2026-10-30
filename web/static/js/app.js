@@ -253,8 +253,9 @@ function updatePreview() {
     `;
     
     const preview = document.getElementById('preview-frame');
-    const blob = new Blob([previewContent], { type: 'text/html' });
-    preview.src = URL.createObjectURL(blob);
+    // The sandboxed frame renders HTML/CSS without executing board scripts.
+    // srcdoc replaces the previous document without retaining object URLs.
+    preview.srcdoc = previewContent;
 }
 
 function updateConnectionStatus(connected) {
