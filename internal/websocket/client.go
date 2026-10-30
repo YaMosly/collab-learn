@@ -1,8 +1,8 @@
 package websocket
 
 import (
-	"collab-learn/internal/database"
-	"collab-learn/internal/redis"
+	"collab-learn/internal/models"
+	"context"
 	"database/sql"
 	"errors"
 	"log"
@@ -19,6 +19,7 @@ const (
 	pongWait       = 60 * time.Second
 	pingPeriod     = (pongWait * 9) / 10
 	maxMessageSize = 512 * 1024
+	sendQueueSize  = 16
 )
 
 var upgrader = websocket.Upgrader{
@@ -30,16 +31,18 @@ var upgrader = websocket.Upgrader{
 }
 
 type WSHandler struct {
-	hub   *Hub
-	db    *database.DB
-	redis *redis.Client
+	hub *Hub
+	db  BoardReader
 }
 
-func NewWSHandler(hub *Hub, db *database.DB, redis *redis.Client) *WSHandler {
+type BoardReader interface {
+	GetBoard(context.Context, string) (*models.Board, error)
+}
+
+func NewWSHandler(hub *Hub, db BoardReader) *WSHandler {
 	return &WSHandler{
-		hub:   hub,
-		db:    db,
-		redis: redis,
+		hub: hub,
+		db:  db,
 	}
 }
 
@@ -63,11 +66,15 @@ func (h *WSHandler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	client := &Client{
 		ID:      uuid.New().String(),
 		BoardID: boardID,
-		Send:    make(chan []byte, 256),
+		Send:    make(chan []byte, sendQueueSize),
 		Hub:     h.hub,
+		conn:    conn,
 	}
 
-	h.hub.register <- client
+	if !h.hub.Register(client) {
+		conn.Close()
+		return
+	}
 
 	go client.writePump(conn)
 	go client.readPump(conn)
@@ -75,7 +82,7 @@ func (h *WSHandler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 func (c *Client) readPump(conn *websocket.Conn) {
 	defer func() {
-		c.Hub.unregister <- c
+		c.Hub.Unregister(c)
 		conn.Close()
 	}()
 
@@ -100,8 +107,8 @@ func (c *Client) readPump(conn *websocket.Conn) {
 		case "update":
 			// All writes now pass through the conditional HTTP endpoint. An old
 			// cached editor must reload instead of bypassing revision checks.
-			c.Hub.broadcast <- Message{BoardID: c.BoardID, Type: "error", Recipient: c,
-				Data: map[string]string{"message": "Reload the editor: writes require HTTP PUT with base_revision"}}
+			c.Hub.Send(Message{BoardID: c.BoardID, Type: "error", Recipient: c,
+				Data: map[string]string{"message": "Reload the editor: writes require HTTP PUT with base_revision"}})
 		}
 	}
 }
@@ -122,7 +129,9 @@ func (c *Client) writePump(conn *websocket.Conn) {
 				return
 			}
 
-			conn.WriteMessage(websocket.TextMessage, message)
+			if err := conn.WriteMessage(websocket.TextMessage, message); err != nil {
+				return
+			}
 
 		case <-ticker.C:
 			conn.SetWriteDeadline(time.Now().Add(writeWait))

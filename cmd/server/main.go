@@ -47,8 +47,10 @@ func main() {
 	defer redisClient.Close()
 
 	hub := websocket.NewHub(redisClient)
-	go hub.Run()
-	go hub.SubscribeToRedis()
+	if err := hub.Start(); err != nil {
+		log.Fatalf("Redis subscription failed: %v", err)
+	}
+	defer hub.Close()
 
 	r := chi.NewRouter()
 
@@ -65,7 +67,7 @@ func main() {
 	}))
 
 	boardHandler := handlers.NewBoardHandler(db, redisClient, hub.BroadcastBoard)
-	wsHandler := websocket.NewWSHandler(hub, db, redisClient)
+	wsHandler := websocket.NewWSHandler(hub, db)
 
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "web/static/index.html")
@@ -100,6 +102,7 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 	log.Println("Shutting down server...")
+	hub.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

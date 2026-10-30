@@ -201,6 +201,7 @@ function connectWebSocket(boardId) {
     socket.onopen = async () => {
         if (ws !== socket) return;
         updateConnectionStatus(true);
+        updateUserCount(0, false);
         await documentSync.reconnect();
         if (documentSync.online) reconnectAttempts = 0;
     };
@@ -208,6 +209,7 @@ function connectWebSocket(boardId) {
     socket.onclose = () => {
         if (ws !== socket) return;
         updateConnectionStatus(false);
+        updateUserCount(0, false);
         documentSync.disconnect();
         if (retryBlocked) return;
         const delay = Math.min(30000, 1000 * 2 ** Math.min(reconnectAttempts++, 5));
@@ -236,7 +238,10 @@ function handleWebSocketMessage(message) {
             break;
             
         case 'connections':
-            updateUserCount(message.data.count);
+            updateUserCount(message.data.count, message.data.available !== false);
+            break;
+        case 'resync':
+            documentSync.refresh();
             break;
     }
 }
@@ -320,9 +325,9 @@ function updateConnectionStatus(connected) {
     }
 }
 
-function updateUserCount(count) {
+function updateUserCount(count, available = true) {
     const userCount = document.getElementById('user-count');
-    userCount.textContent = `${count} user${count !== 1 ? 's' : ''}`;
+    userCount.textContent = available ? `${count} user${count !== 1 ? 's' : ''}` : 'Участники: нет данных';
 }
 
 function shareBoard() {

@@ -134,6 +134,24 @@
             }
         }
 
+        async refresh() {
+            if (!this.online || this.refreshing) return;
+            this.refreshing = true;
+            const generation = this.generation;
+            try {
+                const board = await this.options.read();
+                if (generation !== this.generation || !this.online) return;
+                this.receive(board);
+                return await this.flush();
+            } catch (error) {
+                if (generation !== this.generation) return;
+                this.online = false;
+                this.error = error.message || 'Нет связи с сервером';
+                this.notify();
+                this.options.failed?.(error);
+            } finally { this.refreshing = false; }
+        }
+
         async flush(attempt = 0) {
             if (!this.online || this.inFlight || !this.dirty || this.conflicts.size) return;
             const request = { base_revision: this.base.revision, ...copy(this.local) };

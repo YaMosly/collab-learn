@@ -11,7 +11,8 @@ import (
 )
 
 func TestLegacyWebSocketWritesCannotBypassConditionalHTTPUpdates(t *testing.T) {
-	hub := &Hub{broadcast: make(chan Message, 1), unregister: make(chan *Client, 1)}
+	hub := NewHub(nil)
+	defer hub.Close()
 	var owner *Client
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
