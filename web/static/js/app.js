@@ -3,8 +3,10 @@ let currentBoardId = null;
 let htmlEditor = null;
 let cssEditor = null;
 let isUpdatingFromServer = false;
-let lastSentHTML = '';
-let lastSentCSS = '';
+let documentSync = null;
+let reconnectTimer = null;
+let reconnectAttempts = 0;
+let retryBlocked = false;
 
 document.addEventListener('DOMContentLoaded', () => {
     initializeApp();
@@ -14,6 +16,15 @@ function initializeApp() {
     document.getElementById('create-board').addEventListener('click', createNewBoard);
     document.getElementById('refresh-preview').addEventListener('click', updatePreview);
     document.getElementById('share-btn').addEventListener('click', shareBoard);
+    document.getElementById('keep-local').addEventListener('click', () => documentSync?.resolve('local'));
+    document.getElementById('use-server').addEventListener('click', () => documentSync?.resolve('server'));
+    document.getElementById('retry-save').addEventListener('click', () => {
+        retryBlocked = false;
+        connectWebSocket(currentBoardId);
+    });
+    window.addEventListener('beforeunload', event => {
+        if (documentSync?.dirty || documentSync?.inFlight) { event.preventDefault(); event.returnValue = ''; }
+    });
 
     const boardId = getBoardIdFromURL();
     if (boardId) {
@@ -78,16 +89,12 @@ function createBoardElement(board) {
 
 async function loadBoard(boardId) {
     try {
-        const response = await fetch(`/api/boards/${boardId}`);
-        if (!response.ok) {
-            throw new Error('Board not found');
-        }
-        
-        const board = await response.json();
+        const board = await fetchBoardJSON(`/api/boards/${boardId}`);
         currentBoardId = boardId;
         
         document.getElementById('boards-list').style.display = 'none';
         document.getElementById('editor-container').style.display = 'grid';
+        document.getElementById('sync-status').hidden = false;
         
         initializeEditors(board);
         connectWebSocket(boardId);
@@ -144,9 +151,32 @@ function initializeEditors(board) {
     htmlEditor.setValue(board.code_html || '');
     cssEditor.setValue(board.code_css || '');
     
+    let storage;
+    try { storage = window.sessionStorage; } catch (_) { storage = null; }
+    documentSync = new CollabDocumentSync(board, {
+        storage, key: `collablearn:draft:${currentBoardId}`,
+        read: () => fetchBoardJSON(`/api/boards/${currentBoardId}`),
+        write: async update => {
+            const response = await fetchBoardResult(`/api/boards/${currentBoardId}`, {
+                method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(update),
+            });
+            if (!response.ok && response.status !== 409) {
+                const error = new Error(response.status === 413 ? 'Документ больше 512 КБ. Сократите код и повторите сохранение.' :
+                    `Сохранение не подтверждено (${response.status})`);
+                error.permanent = response.status >= 400 && response.status < 500;
+                throw error;
+            }
+            return { conflict: response.status === 409, board: response.board };
+        },
+        changed: renderDocumentState,
+        failed: error => { retryBlocked = !!error.permanent; ws?.close(); },
+    });
+    documentSync.notify();
+
     let updateTimeout;
     const handleChange = (editor) => {
         if (isUpdatingFromServer) return;
+        documentSync.edit({ code_html: htmlEditor.getValue(), code_css: cssEditor.getValue() });
         
         clearTimeout(updateTimeout);
         updateTimeout = setTimeout(() => {
@@ -160,30 +190,41 @@ function initializeEditors(board) {
 }
 
 function connectWebSocket(boardId) {
+    clearTimeout(reconnectTimer);
+    if (ws) { ws.onclose = null; ws.close(); }
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/api/boards/${boardId}/ws`;
     
-    ws = new WebSocket(wsUrl);
+    const socket = new WebSocket(wsUrl);
+    ws = socket;
     
-    ws.onopen = () => {
+    socket.onopen = async () => {
+        if (ws !== socket) return;
         updateConnectionStatus(true);
+        await documentSync.reconnect();
+        if (documentSync.online) reconnectAttempts = 0;
     };
     
-    ws.onclose = () => {
+    socket.onclose = () => {
+        if (ws !== socket) return;
         updateConnectionStatus(false);
-        setTimeout(() => {
+        documentSync.disconnect();
+        if (retryBlocked) return;
+        const delay = Math.min(30000, 1000 * 2 ** Math.min(reconnectAttempts++, 5));
+        reconnectTimer = setTimeout(() => {
             if (currentBoardId === boardId) {
                 connectWebSocket(boardId);
             }
-        }, 3000);
+        }, delay + Math.random() * delay * .2);
     };
     
-    ws.onmessage = (event) => {
-        const message = JSON.parse(event.data);
-        handleWebSocketMessage(message);
+    socket.onmessage = (event) => {
+        if (ws !== socket) return;
+        try { handleWebSocketMessage(JSON.parse(event.data)); }
+        catch (error) { console.error('Invalid update:', error); socket.close(); }
     };
     
-    ws.onerror = (error) => {
+    socket.onerror = (error) => {
         console.error('WebSocket error:', error);
     };
 }
@@ -191,21 +232,7 @@ function connectWebSocket(boardId) {
 function handleWebSocketMessage(message) {
     switch (message.type) {
         case 'update':
-            isUpdatingFromServer = true;
-            if (message.data.code_html !== undefined && htmlEditor.getValue() !== message.data.code_html) {
-                const htmlCursor = htmlEditor.getCursor();
-                htmlEditor.setValue(message.data.code_html);
-                htmlEditor.setCursor(htmlCursor);
-            }
-            if (message.data.code_css !== undefined && cssEditor.getValue() !== message.data.code_css) {
-                const cssCursor = cssEditor.getCursor();
-                cssEditor.setValue(message.data.code_css);
-                cssEditor.setCursor(cssCursor);
-            }
-            updatePreview();
-            setTimeout(() => {
-                isUpdatingFromServer = false;
-            }, 100);
+            documentSync.receive(message.data);
             break;
             
         case 'connections':
@@ -215,27 +242,51 @@ function handleWebSocketMessage(message) {
 }
 
 function sendUpdate() {
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    
-    const currentHTML = htmlEditor.getValue();
-    const currentCSS = cssEditor.getValue();
-    
-    if (currentHTML === lastSentHTML && currentCSS === lastSentCSS) {
-        return;
+    return documentSync?.flush();
+}
+
+async function fetchBoardResult(url, options = {}) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    try {
+        const response = await fetch(url, { ...options, cache: 'no-store', signal: controller.signal });
+        // Keep the deadline through the body read, not just response headers.
+        const board = response.ok || response.status === 409 ? await response.json() : null;
+        return { ok: response.ok, status: response.status, board };
     }
-    
-    lastSentHTML = currentHTML;
-    lastSentCSS = currentCSS;
-    
-    const update = {
-        type: 'update',
-        data: {
-            code_html: currentHTML,
-            code_css: currentCSS
+    finally { clearTimeout(timeout); }
+}
+
+async function fetchBoardJSON(url) {
+    const response = await fetchBoardResult(url);
+    if (!response.ok) {
+        const error = new Error(`Сервер недоступен (${response.status})`);
+        error.permanent = response.status >= 400 && response.status < 500;
+        throw error;
+    }
+    return response.board;
+}
+
+function renderDocumentState(state) {
+    isUpdatingFromServer = true;
+    try {
+        for (const [editor, field] of [[htmlEditor, 'code_html'], [cssEditor, 'code_css']]) {
+            if (editor.getValue() !== state.local[field]) {
+                const cursor = editor.getCursor();
+                editor.setValue(state.local[field]);
+                editor.setCursor(cursor);
+            }
         }
-    };
-    
-    ws.send(JSON.stringify(update));
+    } finally { isUpdatingFromServer = false; }
+    updatePreview();
+    const status = document.getElementById('save-status');
+    status.textContent = state.error || (state.conflicts.length ? 'Конфликт: обе версии сохранены в этой вкладке' :
+        !state.online ? 'Нет связи · черновик в этой вкладке' : state.dirty || state.busy ? 'Сохраняется…' : 'Сохранено');
+    document.getElementById('draft-warning').textContent = state.draftWarning;
+    const panel = document.getElementById('sync-conflict');
+    panel.hidden = state.conflicts.length === 0;
+    document.getElementById('server-version').textContent = `HTML\n${state.remote.code_html}\n\nCSS\n${state.remote.code_css}`;
+    document.getElementById('retry-save').hidden = !state.error;
 }
 
 function updatePreview() {

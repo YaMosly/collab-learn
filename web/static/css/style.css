@@ -644,3 +644,14 @@ main {
         gap: 1rem;
     }
 }
+/* Keep save/conflict controls visible without clipping the editor below. */
+body { display: flex; flex-direction: column; }
+header { flex-shrink: 0; }
+main { flex: 1; min-height: 0; height: auto; }
+[hidden] { display: none !important; }
+.sync-status, .sync-conflict { flex-shrink: 0; padding: .5rem 2rem; background: var(--bg-secondary); border-bottom: 1px solid var(--border); }
+.sync-status { display: flex; gap: 1rem; align-items: center; min-height: 2rem; font-size: .85rem; }
+#draft-warning { color: var(--warning); }
+.sync-conflict { max-height: 40vh; overflow: auto; border-color: var(--warning); }
+.sync-conflict pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 10rem; overflow: auto; }
+.conflict-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .5rem; }

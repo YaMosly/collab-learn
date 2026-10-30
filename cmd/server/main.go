@@ -37,7 +37,7 @@ func main() {
 	defer db.Close()
 
 	if err := db.Migrate(); err != nil {
-		log.Printf("Migration error (may be ignored if tables exist): %v", err)
+		log.Fatalf("Required database migration failed: %v", err)
 	}
 
 	redisClient, err := redis.NewClient(redisHost, redisPort)
@@ -64,7 +64,7 @@ func main() {
 		MaxAge:           300,
 	}))
 
-	boardHandler := handlers.NewBoardHandler(db, redisClient)
+	boardHandler := handlers.NewBoardHandler(db, redisClient, hub.BroadcastBoard)
 	wsHandler := websocket.NewWSHandler(hub, db, redisClient)
 
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {

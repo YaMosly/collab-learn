@@ -18,9 +18,10 @@ type Hub struct {
 }
 
 type Message struct {
-	BoardID string      `json:"board_id"`
-	Type    string      `json:"type"`
-	Data    interface{} `json:"data"`
+	BoardID   string      `json:"board_id"`
+	Type      string      `json:"type"`
+	Data      interface{} `json:"data"`
+	Recipient *Client     `json:"-"`
 }
 
 type Client struct {
@@ -84,6 +85,9 @@ func (h *Hub) Run() {
 			}
 
 			for client := range clients {
+				if message.Recipient != nil && message.Recipient != client {
+					continue
+				}
 				select {
 				case client.Send <- data:
 				default:
@@ -95,6 +99,10 @@ func (h *Hub) Run() {
 			}
 		}
 	}
+}
+
+func (h *Hub) BroadcastBoard(board *models.Board) {
+	h.broadcast <- Message{BoardID: board.ID, Type: "update", Data: board}
 }
 
 func (h *Hub) broadcastConnectionCount(boardID string, count int64) {
@@ -122,7 +130,7 @@ func (h *Hub) subscribeToBoard(boardID string) {
 
 	ch := pubsub.Channel()
 	for msg := range ch {
-		var update models.BoardUpdate
+		var update models.Board
 		if err := json.Unmarshal([]byte(msg.Payload), &update); err != nil {
 			log.Printf("Error unmarshaling redis message: %v", err)
 			continue
