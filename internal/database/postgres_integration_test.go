@@ -6,10 +6,10 @@ import (
 	"errors"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -43,17 +43,22 @@ func TestPostgresConcurrentRevisions(t *testing.T) {
 	}
 	defer pool.Close()
 	db := &DB{pool}
-	for _, file := range []string{"001_initial.sql", "002_board_revision.sql", "002_board_revision.sql"} {
-		migration, err := os.ReadFile(filepath.Join("..", "..", "migrations", file))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := pool.Exec(string(migration)); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	// Two instances can start together against an empty database.
+	migrated := make(chan error, 2)
+	for i := 0; i < 2; i++ {
+		go func() { migrated <- db.MigrateContext(ctx) }()
+	}
+	for i := 0; i < 2; i++ {
+		if err := <-migrated; err != nil {
 			t.Fatal(err)
 		}
 	}
+	if err := db.MigrateContext(ctx); err != nil {
+		t.Fatal(err)
+	}
 	id := uuid.NewString()
-	ctx := context.Background()
 	if _, err := db.CreateBoard(ctx, id); err != nil {
 		t.Fatal(err)
 	}

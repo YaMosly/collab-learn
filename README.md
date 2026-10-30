@@ -51,19 +51,39 @@
 
 1. **Клонируйте репозиторий**
 ```bash
-git clone https://github.com/YaMosli/collab-learn.git
+git clone https://github.com/YaMosly/collab-learn.git
 cd collab-learn
 ```
 
-2. **Запустите с помощью Docker Compose**
+2. **Создайте конфигурацию**
 ```bash
-docker-compose up --build
+cp .env.example .env
 ```
 
-3. **Откройте в браузере**
+В PowerShell: `Copy-Item .env.example .env`. Укажите свой `DB_PASSWORD` в `.env`;
+без него запуск остановится с понятной ошибкой. Файл `.env` исключён из Git и Docker-образа.
+
+3. **Запустите с помощью Docker Compose v2**
+```bash
+docker compose up --build -d --wait
+docker compose ps
+```
+
+4. **Откройте в браузере**
 ```
 http://localhost:8080
 ```
+
+По умолчанию приложение доступно только на этом компьютере. PostgreSQL и Redis
+не публикуют порты на хост. Для доступа по сети задайте `APP_BIND_ADDRESS`;
+доски пока общие, без учётных записей и разграничения доступа. Перед публикацией
+нужны отдельная настройка доступа и HTTPS.
+
+Данные PostgreSQL остаются в Docker volume при `docker compose down`.
+Если volume уже существует, используйте его текущий пароль: изменение `.env`
+не меняет пароль пользователя существующей базы. Не удаляйте volume ради смены пароля.
+После изменения исходников повторите запуск с `--build`: файлы frontend теперь
+входят в образ, локальная папка не подменяет их автоматически.
 
 ## Предпросмотр и проверки
 
@@ -158,22 +178,42 @@ go test ./internal/websocket -run TestNativeRedisTwoNodeDelivery -v
 ```
 
 В GitHub Actions проверки запускаются с отдельными PostgreSQL 15 и Redis 7,
-а также с `go test -race`. Секреты приложения и развёртывание в CI не используются.
+а также с `go test -race`. Отдельная задача собирает реальный Docker-образ и проверяет
+запуск Compose, API, статические файлы, отказ/возвращение зависимостей и сохранность
+документа после перезапуска. Секреты приложения и развёртывание в CI не используются.
 
 ## Конфигурация
 
-Переменные окружения (задаются в docker-compose.yml):
+Сервер читает переменные окружения. В Compose хосты зависимостей задаются автоматически;
+`.env` используется самим Compose для подстановки пароля, имени базы и внешнего порта.
 
 | Переменная | По умолчанию | Описание |
 |----------|---------|-------------|
-| `DB_HOST` | postgres | Хост PostgreSQL |
+| `DB_HOST` | localhost | Хост PostgreSQL; в Compose `postgres` |
 | `DB_PORT` | 5432 | Порт PostgreSQL |
 | `DB_USER` | collablearn | Пользователь БД |
-| `DB_PASSWORD` | collablearn123 | Пароль БД |
+| `DB_PASSWORD` | обязателен | Пароль БД, без встроенного значения |
 | `DB_NAME` | collablearn | Имя БД |
-| `REDIS_HOST` | redis | Хост Redis |
+| `DB_SSLMODE` | disable | `disable`, `require`, `verify-ca`, `verify-full`; для внешней БД настройте TLS |
+| `REDIS_HOST` | localhost | Хост Redis; в Compose `redis` |
 | `REDIS_PORT` | 6379 | Порт Redis |
 | `PORT` | 8080 | Порт приложения |
+| `HTTP_HOST` | 0.0.0.0 | IP/localhost для HTTP-сервера |
+| `STARTUP_TIMEOUT` | 45s | Общий срок подключения, миграций и подтверждения подписки, от 1s до 5m |
+| `APP_BIND_ADDRESS` | 127.0.0.1 | Только Compose: адрес публикации на хосте |
+| `APP_PORT` | 8080 | Только Compose: внешний порт приложения |
+
+Сервер повторяет подключения в пределах `STARTUP_TIMEOUT`; ошибка миграции
+останавливает запуск. Миграции встроены в бинарник и выполняются в одной транзакции
+с PostgreSQL advisory lock для одновременного запуска нескольких экземпляров.
+SIGINT/SIGTERM закрывает WebSocket и завершает HTTP-запросы в пределах 30 секунд.
+
+`/health` и `/livez` — проверка работы HTTP-процесса. `/readyz` за срок до двух секунд
+проверяет PostgreSQL, Redis и жизненный цикл WebSocket hub: 200 при готовности,
+503 при сбое или остановке. Это не проверка каждого сообщения Pub/Sub и не механизм
+перезапуска Docker: состояние `unhealthy` само по себе контейнер не перезапускает.
+Docker использует команду `/app/collablearn healthcheck`; образ работает от UID 10001
+с файловой системой только для чтения.
 
 ## API-эндпоинты
 

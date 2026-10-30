@@ -64,6 +64,12 @@ func NewHub(client *redis.Client) *Hub {
 }
 
 func (h *Hub) Start() error {
+	return h.StartContext(h.ctx)
+}
+
+// The startup deadline only bounds the initial subscription acknowledgement.
+// Long-lived workers use h.ctx, independent of the caller's startup deadline.
+func (h *Hub) StartContext(ctx context.Context) error {
 	h.lifecycle.Lock()
 	defer h.lifecycle.Unlock()
 	if h.started || h.closed {
@@ -72,7 +78,7 @@ func (h *Hub) Start() error {
 	if h.redis == nil {
 		return errors.New("Redis is required")
 	}
-	sub, err := h.redis.SubscribeEvents(h.ctx)
+	sub, err := h.redis.SubscribeEvents(ctx)
 	if err != nil {
 		return err
 	}
@@ -83,6 +89,12 @@ func (h *Hub) Start() error {
 	go func() { defer h.workers.Done(); h.readEvents() }()
 	go func() { defer h.workers.Done(); h.presenceWorker() }()
 	return nil
+}
+
+func (h *Hub) Active() bool {
+	h.lifecycle.Lock()
+	defer h.lifecycle.Unlock()
+	return h.started && !h.closed
 }
 
 func (h *Hub) Close() {

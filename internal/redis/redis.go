@@ -17,11 +17,15 @@ const PresenceTTL = 60 * time.Second
 type Client struct{ *goredis.Client }
 
 func NewClient(host, port string) (*Client, error) {
-	rdb := goredis.NewClient(&goredis.Options{Addr: net.JoinHostPort(host, port),
-		PoolSize: 10, MinIdleConns: 2, MaxRetries: 1, ContextTimeoutEnabled: true,
-		DialTimeout: 2 * time.Second, ReadTimeout: 2 * time.Second, WriteTimeout: 2 * time.Second, PoolTimeout: 2 * time.Second})
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
+	return Connect(ctx, net.JoinHostPort(host, port))
+}
+
+func Connect(ctx context.Context, address string) (*Client, error) {
+	rdb := goredis.NewClient(&goredis.Options{Addr: address,
+		PoolSize: 10, MinIdleConns: 2, MaxRetries: 1, ContextTimeoutEnabled: true,
+		DialTimeout: 2 * time.Second, ReadTimeout: 2 * time.Second, WriteTimeout: 2 * time.Second, PoolTimeout: 2 * time.Second})
 	if err := rdb.Ping(ctx).Err(); err != nil {
 		rdb.Close()
 		return nil, err
@@ -45,7 +49,14 @@ func (c *Client) SubscribeEvents(ctx context.Context) (*goredis.PubSub, error) {
 	pubsub := c.PSubscribe(ctx, BoardPattern, PresencePattern)
 	pending := map[string]bool{BoardPattern: true, PresencePattern: true}
 	deadline := time.Now().Add(3 * time.Second)
+	if parent, ok := ctx.Deadline(); ok && parent.Before(deadline) {
+		deadline = parent
+	}
 	for len(pending) > 0 {
+		if err := ctx.Err(); err != nil {
+			pubsub.Close()
+			return nil, err
+		}
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
 			pubsub.Close()

@@ -1,10 +1,10 @@
 package database
 
 import (
+	"collab-learn/migrations"
+	"context"
 	"database/sql"
 	"fmt"
-	"log"
-	"os"
 	"time"
 
 	_ "github.com/lib/pq"
@@ -14,11 +14,8 @@ type DB struct {
 	*sql.DB
 }
 
-func NewDB(host, port, user, password, dbname string) (*DB, error) {
-	psqlInfo := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
-		host, port, user, password, dbname)
-
-	db, err := sql.Open("postgres", psqlInfo)
+func Open(ctx context.Context, databaseURL string) (*DB, error) {
+	db, err := sql.Open("postgres", databaseURL)
 	if err != nil {
 		return nil, err
 	}
@@ -27,7 +24,7 @@ func NewDB(host, port, user, password, dbname string) (*DB, error) {
 	db.SetMaxIdleConns(5)
 	db.SetConnMaxLifetime(5 * time.Minute)
 
-	if err := db.Ping(); err != nil {
+	if err := db.PingContext(ctx); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -36,16 +33,28 @@ func NewDB(host, port, user, password, dbname string) (*DB, error) {
 }
 
 func (db *DB) Migrate() error {
-	for _, migrationFile := range []string{"migrations/001_initial.sql", "migrations/002_board_revision.sql"} {
-		content, err := os.ReadFile(migrationFile)
+	return db.MigrateContext(context.Background())
+}
+
+func (db *DB) MigrateContext(ctx context.Context) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	// Serialize startup migrations across app instances; released on commit/rollback.
+	if _, err := tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock(724061981)"); err != nil {
+		return err
+	}
+	for _, migrationFile := range []string{"001_initial.sql", "002_board_revision.sql"} {
+		content, err := migrations.Files.ReadFile(migrationFile)
 		if err != nil {
 			return fmt.Errorf("read %s: %w", migrationFile, err)
 		}
-		if _, err := db.Exec(string(content)); err != nil {
+		if _, err := tx.ExecContext(ctx, string(content)); err != nil {
 			return fmt.Errorf("execute %s: %w", migrationFile, err)
 		}
 	}
 
-	log.Println("Database migration completed successfully")
-	return nil
+	return tx.Commit()
 }
