@@ -33,6 +33,11 @@
         <span id="save-status" role="status" aria-live="polite"></span>
         <span id="draft-warning" role="alert"></span>
         <button id="retry-save" class="btn btn-small" hidden>Повторить соединение</button>
+        <div class="export-actions" role="group" aria-label="Скачать текущую локальную версию">
+            <span>Локальная копия:</span>
+            <button type="button" id="export-html" class="btn btn-small">Скачать HTML</button>
+            <button type="button" id="export-css" class="btn btn-small">Скачать CSS</button>
+        </div>
     </section>
     <section id="sync-conflict" class="sync-conflict" aria-label="Конфликт изменений" hidden>
         <p>Один и тот же код изменён у вас и на сервере. Ваш текст остаётся в редакторе.</p>
@@ -99,6 +104,7 @@
     <script src="/static/js/document-sync.js"></script>
     <script src="/static/js/board-history.js"></script>
     <script src="/static/js/retry-policy.js"></script>
+    <script src="/static/js/source-export.js"></script>
     <script src="/static/js/app.js"></script>
 </body>
 </html>

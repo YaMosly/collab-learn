@@ -27,6 +27,8 @@ function initializeApp() {
     document.getElementById('create-board').addEventListener('click', createNewBoard);
     document.getElementById('refresh-preview').addEventListener('click', updatePreview);
     document.getElementById('share-btn').addEventListener('click', shareBoard);
+    document.getElementById('export-html').addEventListener('click', () => exportSource('html'));
+    document.getElementById('export-css').addEventListener('click', () => exportSource('css'));
     document.getElementById('clear-history').addEventListener('click', () => { boardHistory.clear(); loadBoardsList(); });
     document.getElementById('notice-retry').addEventListener('click', () => { if (!retryPolicy.remaining()) noticeRetry?.(); });
     document.getElementById('notice-dismiss').addEventListener('click', clearNotice);
@@ -464,5 +466,16 @@ async function shareBoard() {
     } catch (_) {
         showNotice('Автоматическое копирование недоступно. Выделите и скопируйте ссылку.', { link: url });
         const input = document.getElementById('notice-link'); input.focus(); input.select();
+    }
+}
+
+function exportSource(format) {
+    const editor = format === 'html' ? htmlEditor : format === 'css' ? cssEditor : null;
+    if (!editor) return;
+    try {
+        const filename = CollabSourceExport.download(format, editor.getValue());
+        showNotice(`Локальная версия передана браузеру для скачивания: ${filename}. Проверьте список загрузок.`, { kind: 'success' });
+    } catch (_) {
+        showNotice('Не удалось начать скачивание. Повторите попытку или скопируйте код из редактора.');
     }
 }

@@ -44,6 +44,7 @@ wait_status("/readyz", 200)
 assert request("/")[0] == 200
 assert request("/static/js/app.js")[0] == 200
 assert request("/static/js/retry-policy.js")[0] == 200
+assert request("/static/js/source-export.js")[0] == 200
 vendor = "vendor/codemirror-5.65.2"
 manifest = json.loads((Path(__file__).resolve().parent.parent / "web/static" / vendor / "manifest.json").read_text())
 for file, digest in manifest["files"].items():

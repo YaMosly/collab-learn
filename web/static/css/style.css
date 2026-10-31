@@ -662,4 +662,6 @@ main { flex: 1; min-height: 0; height: auto; }
 .btn:disabled { opacity: .55; cursor: wait; }
 #notice-retry, #retry-save { background: var(--bg-tertiary); color: var(--primary); border: 1px solid var(--primary); }
 #notice-dismiss { background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border); }
+.export-actions { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; margin-left: auto; }
+.export-actions .btn { background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border); }
 @media (max-width: 640px) { .app-notice, .sync-status, .sync-conflict { padding: .5rem 1rem; } }
