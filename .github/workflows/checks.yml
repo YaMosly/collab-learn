@@ -58,6 +58,7 @@ jobs:
           node --check web/static/js/board-history.js
           node --check web/static/js/retry-policy.js
           node --check web/static/js/source-export.js
+          node --check web/static/js/panel-layout.js
       - name: Go vet
         run: go vet ./...
       - name: Go tests, race detector, and native integrations

@@ -296,10 +296,10 @@ main {
 
 .editor-container {
     width: 100%;
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
-    gap: 1px;
-    background: var(--border);
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
     animation: slideIn 0.5s ease;
 }
 
@@ -620,10 +620,6 @@ main {
 }
 
 @media (max-width: 1024px) {
-    .editor-container {
-        grid-template-columns: 1fr;
-        grid-template-rows: 1fr 1fr 1fr;
-    }
     
     .editor-header h3 {
         font-size: 0.75rem;
@@ -664,4 +660,30 @@ main { flex: 1; min-height: 0; height: auto; }
 #notice-dismiss { background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border); }
 .export-actions { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; margin-left: auto; }
 .export-actions .btn { background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border); }
+/* Keep document controls reachable even when notices consume most of a small viewport. */
+body { height: 100dvh; overflow: auto; }
+main { min-height: 280px; }
+.editor-panels { display: grid; grid-template-columns: minmax(0,1fr) 10px minmax(0,1fr) 10px minmax(0,1fr); flex: 1; min-height: 0; min-width: 0; }
+.editor-panels > section { min-height: 0; min-width: 0; overflow: hidden; }
+.editor-panels .CodeMirror { flex: 1; height: 0; min-height: 0; }
+.editor-panels iframe { width: 100%; min-width: 0; min-height: 0; }
+.panel-splitter { background: var(--bg-tertiary); cursor: col-resize; touch-action: none; position: relative; }
+.panel-splitter::after { content: ''; position: absolute; top: 45%; bottom: 45%; width: 2px; left: 4px; background: var(--text-muted); }
+.panel-splitter:hover, .panel-splitter:focus-visible { background: var(--primary); }
+.is-resizing { user-select: none; cursor: col-resize; }
+.is-resizing iframe { pointer-events: none; }
+.editor-tabs { display: flex; flex-shrink: 0; background: var(--bg-secondary); border-bottom: 1px solid var(--border); }
+.editor-tabs button { flex: 1; padding: .75rem; color: var(--text-secondary); background: transparent; border: 0; border-bottom: 3px solid transparent; font: inherit; cursor: pointer; }
+.editor-tabs button[aria-selected="true"] { color: var(--primary); border-bottom-color: var(--primary); }
+:is(button, .panel-splitter, [role="tabpanel"]):focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+@media (max-width: 1024px) {
+    header { padding: .75rem 1rem; flex-wrap: wrap; gap: .5rem; }
+    .header-controls { flex-wrap: wrap; gap: .5rem; max-width: 100%; }
+    .editor-panels { display: block; }
+    .editor-panels > section { height: 100%; }
+    .editor-header { padding: .5rem .75rem; }
+    .boards-list { padding: 1rem; }
+    #boards-container { grid-template-columns: repeat(auto-fill, minmax(min(100%,300px), 1fr)); }
+}
 @media (max-width: 640px) { .app-notice, .sync-status, .sync-conflict { padding: .5rem 1rem; } }
