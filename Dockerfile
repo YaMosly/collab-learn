@@ -1,26 +1,25 @@
-FROM golang:1.21-alpine AS builder
+FROM golang:1.27.3-alpine AS builder
 
 WORKDIR /app
-
-RUN apk add --no-cache git
 
 COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main cmd/server/main.go
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -o /collablearn ./cmd/server
 
-FROM alpine:latest
+FROM alpine:3.22
 
 RUN apk --no-cache add ca-certificates
 
-WORKDIR /root/
+WORKDIR /app
 
-COPY --from=builder /app/main .
+COPY --from=builder /collablearn ./collablearn
 COPY --from=builder /app/web ./web
-COPY --from=builder /app/migrations ./migrations
+USER 10001:10001
 
 EXPOSE 8080
 
-CMD ["./main"]
+HEALTHCHECK --interval=10s --timeout=4s --start-period=60s --retries=3 CMD ["/app/collablearn", "healthcheck"]
+ENTRYPOINT ["/app/collablearn"]

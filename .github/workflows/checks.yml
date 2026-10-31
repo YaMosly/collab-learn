@@ -57,3 +57,26 @@ jobs:
         run: go vet ./...
       - name: Go tests, race detector, and native integrations
         run: go test -race -v ./...
+
+  compose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      COMPOSE_PROJECT_NAME: collablearn-ci
+      DB_PASSWORD: ci-only-not-a-secret
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Validate Compose
+        run: docker compose config --quiet
+      - name: Build and wait for healthy services
+        run: docker compose up --build -d --wait --wait-timeout 180
+      - name: Exercise the container stack
+        run: python3 tools/compose-smoke.py
+      - name: Container logs on failure
+        if: failure()
+        run: docker compose logs --no-color --tail 100
+      - name: Stop disposable stack
+        if: always()
+        run: docker compose down
