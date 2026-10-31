@@ -2,9 +2,9 @@ package websocket
 
 import (
 	"collab-learn/internal/database"
-	"collab-learn/internal/models"
 	"collab-learn/internal/redis"
-	"encoding/json"
+	"database/sql"
+	"errors"
 	"log"
 	"net/http"
 	"time"
@@ -45,7 +45,15 @@ func NewWSHandler(hub *Hub, db *database.DB, redis *redis.Client) *WSHandler {
 
 func (h *WSHandler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	boardID := chi.URLParam(r, "id")
-	
+	if _, err := h.db.GetBoard(r.Context(), boardID); err != nil {
+		status := http.StatusServiceUnavailable
+		if errors.Is(err, sql.ErrNoRows) {
+			status = http.StatusNotFound
+		}
+		http.Error(w, "Board unavailable", status)
+		return
+	}
+
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("WebSocket upgrade error: %v", err)
@@ -62,10 +70,10 @@ func (h *WSHandler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	h.hub.register <- client
 
 	go client.writePump(conn)
-	go client.readPump(conn, h.db, h.redis)
+	go client.readPump(conn)
 }
 
-func (c *Client) readPump(conn *websocket.Conn, db *database.DB, redis *redis.Client) {
+func (c *Client) readPump(conn *websocket.Conn) {
 	defer func() {
 		c.Hub.unregister <- c
 		conn.Close()
@@ -90,28 +98,10 @@ func (c *Client) readPump(conn *websocket.Conn, db *database.DB, redis *redis.Cl
 
 		switch msg.Type {
 		case "update":
-			var update models.BoardUpdate
-			data, _ := json.Marshal(msg.Data)
-			json.Unmarshal(data, &update)
-
-			query := `UPDATE boards SET code_html = $1, code_css = $2, updated_at = $3 WHERE id = $4`
-			_, err := db.Exec(query, update.CodeHTML, update.CodeCSS, time.Now(), c.BoardID)
-			if err != nil {
-				log.Printf("Error updating board: %v", err)
-				continue
-			}
-
-			update.BoardID = c.BoardID
-			redis.PublishBoardUpdate(c.BoardID, update)
-
-			var board models.Board
-			board.ID = c.BoardID
-			board.CodeHTML = update.CodeHTML
-			board.CodeCSS = update.CodeCSS
-			redis.CacheBoard(c.BoardID, board, 15*time.Minute)
-
-			msg.BoardID = c.BoardID
-			c.Hub.broadcast <- msg
+			// All writes now pass through the conditional HTTP endpoint. An old
+			// cached editor must reload instead of bypassing revision checks.
+			c.Hub.broadcast <- Message{BoardID: c.BoardID, Type: "error", Recipient: c,
+				Data: map[string]string{"message": "Reload the editor: writes require HTTP PUT with base_revision"}}
 		}
 	}
 }

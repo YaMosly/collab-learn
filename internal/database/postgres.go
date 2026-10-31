@@ -3,8 +3,8 @@ package database
 import (
 	"database/sql"
 	"fmt"
-	"io/ioutil"
 	"log"
+	"os"
 	"time"
 
 	_ "github.com/lib/pq"
@@ -28,6 +28,7 @@ func NewDB(host, port, user, password, dbname string) (*DB, error) {
 	db.SetConnMaxLifetime(5 * time.Minute)
 
 	if err := db.Ping(); err != nil {
+		db.Close()
 		return nil, err
 	}
 
@@ -35,15 +36,14 @@ func NewDB(host, port, user, password, dbname string) (*DB, error) {
 }
 
 func (db *DB) Migrate() error {
-	migrationFile := "migrations/001_initial.sql"
-	content, err := ioutil.ReadFile(migrationFile)
-	if err != nil {
-		return fmt.Errorf("failed to read migration file: %v", err)
-	}
-
-	_, err = db.Exec(string(content))
-	if err != nil {
-		return fmt.Errorf("failed to execute migration: %v", err)
+	for _, migrationFile := range []string{"migrations/001_initial.sql", "migrations/002_board_revision.sql"} {
+		content, err := os.ReadFile(migrationFile)
+		if err != nil {
+			return fmt.Errorf("read %s: %w", migrationFile, err)
+		}
+		if _, err := db.Exec(string(content)); err != nil {
+			return fmt.Errorf("execute %s: %w", migrationFile, err)
+		}
 	}
 
 	log.Println("Database migration completed successfully")
