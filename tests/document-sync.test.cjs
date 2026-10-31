@@ -241,3 +241,52 @@ test('refresh failures keep the draft and request reconnect', async () => {
     await c.reconnect(); edit(c, 'draft'); await c.refresh();
     assert.equal(c.online, false); assert.equal(c.local.code_html, 'draft'); assert.equal(failures, 1);
 });
+
+test('a late failed save cannot close a recovered connection and retries the latest draft', async () => {
+    const api = server(), pending = deferred(); let first = true, failures = 0;
+    const c = client(api, { failed: () => { failures++; }, write: async request => {
+        if (first) { first = false; await pending.promise; throw new Error('old connection failed'); }
+        return api.write(request);
+    } });
+    await c.reconnect(); edit(c, 'A'); const saving = c.flush();
+    c.disconnect(); await c.reconnect(); edit(c, 'latest draft');
+    pending.resolve(); await saving;
+    assert.equal(failures, 0); assert.equal(c.online, true); assert.equal(c.dirty, false);
+    assert.equal(api.current.code_html, 'latest draft');
+});
+
+test('a late acknowledgement does not clear the error from a newer failed reconnect', async () => {
+    const api = server(), pending = deferred(); let readingFails = false;
+    const c = client(api, { read: async () => { if (readingFails) throw new Error('new reconnect failed'); return api.read(); },
+        write: async request => { const result = await api.write(request); await pending.promise; return result; } });
+    await c.reconnect(); edit(c, 'A'); const saving = c.flush();
+    c.disconnect(); readingFails = true; await c.reconnect(); pending.resolve(); await saving;
+    assert.equal(c.online, false); assert.equal(c.error, 'new reconnect failed'); assert.equal(c.base.revision, 1);
+});
+
+test('an older lost response preserves undo while recovering a committed write', async () => {
+    const api = server(), pending = deferred(); let first = true;
+    const c = client(api, { write: async request => {
+        const result = await api.write(request);
+        if (first) { first = false; await pending.promise; throw new Error('old response lost'); }
+        return result;
+    } });
+    await c.reconnect(); edit(c, 'A'); const saving = c.flush(); edit(c, '');
+    c.disconnect(); await c.reconnect(); pending.resolve(); await saving;
+    assert.equal(c.online, true); assert.equal(c.dirty, false); assert.deepEqual(c.state().conflicts, []);
+    assert.equal(api.current.code_html, ''); assert.equal(api.current.revision, 2);
+});
+
+test('successful coalesced writes do not consume the conflict retry budget', async () => {
+    const api = server(); let writes = 0, c;
+    c = client(api, { write: async request => {
+        writes++;
+        if (writes === 7) await api.write({ base_revision: api.current.revision, code_html: api.current.code_html, code_css: 'remote CSS' });
+        const result = await api.write(request);
+        if (writes <= 6) edit(c, 'edit ' + writes);
+        return result;
+    } });
+    await c.reconnect(); edit(c, 'start'); await c.flush();
+    assert.equal(c.online, true); assert.equal(c.dirty, false); assert.equal(c.error, '');
+    assert.deepEqual(api.current, board(8, 'edit 6', 'remote CSS'));
+});

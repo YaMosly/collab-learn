@@ -5,7 +5,13 @@ let cssEditor = null;
 let isUpdatingFromServer = false;
 let documentSync = null;
 let reconnectTimer = null;
-let reconnectAttempts = 0;
+const retryPolicy = new CollabRetryPolicy();
+let socketTimer = null;
+let cooldownTimer = null;
+let creatingBoard = false;
+let openingBoard = false;
+let noticeRetry = null;
+let noticeRetryLabel = 'Повторить';
 let retryBlocked = false;
 let boardHistory = null;
 let navigationConfirmed = false;
@@ -22,6 +28,8 @@ function initializeApp() {
     document.getElementById('refresh-preview').addEventListener('click', updatePreview);
     document.getElementById('share-btn').addEventListener('click', shareBoard);
     document.getElementById('clear-history').addEventListener('click', () => { boardHistory.clear(); loadBoardsList(); });
+    document.getElementById('notice-retry').addEventListener('click', () => { if (!retryPolicy.remaining()) noticeRetry?.(); });
+    document.getElementById('notice-dismiss').addEventListener('click', clearNotice);
     document.getElementById('keep-local').addEventListener('click', () => documentSync?.resolve('local'));
     document.getElementById('use-server').addEventListener('click', () => documentSync?.resolve('server'));
     document.getElementById('retry-save').addEventListener('click', () => {
@@ -32,6 +40,8 @@ function initializeApp() {
         if (!navigationConfirmed && (documentSync?.dirty || documentSync?.inFlight)) { event.preventDefault(); event.returnValue = ''; }
     });
     window.addEventListener('hashchange', handleHashNavigation);
+    window.addEventListener('online', resumeConnection);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) resumeConnection(); });
 
     const boardId = getBoardIdFromURL();
     if (boardId) {
@@ -61,8 +71,10 @@ function handleHashNavigation() {
 }
 
 async function createNewBoard() {
-    const button = document.getElementById('create-board');
-    button.disabled = true;
+    if (creatingBoard || openingBoard) return;
+    creatingBoard = true;
+    showNotice('Создаём доску…', { kind: 'info' });
+    updateRetryControls();
     try {
         const board = await fetchBoardJSON('/api/boards', {
             method: 'POST',
@@ -73,8 +85,8 @@ async function createNewBoard() {
         // initializeApp converts the compatibility query to a shareable fragment.
         window.location.href = `/?board=${encodeURIComponent(board.id)}`;
     } catch (error) {
-        alert(`Не удалось создать доску. ${error.message}`);
-    } finally { button.disabled = false; }
+        showNotice(`Создание доски не подтверждено. ${error.message}`, { retry: createNewBoard, label: 'Создать ещё раз' });
+    } finally { creatingBoard = false; updateRetryControls(); }
 }
 
 function loadBoardsList() {
@@ -105,8 +117,18 @@ function createBoardElement(board) {
 }
 
 async function loadBoard(boardId) {
+    if (openingBoard || currentBoardId) return;
+    openingBoard = true;
+    showNotice('Открываем доску…', { kind: 'info' });
+    updateRetryControls();
     try {
         const board = await fetchBoardJSON(`/api/boards/${encodeURIComponent(boardId)}`);
+        if (typeof CodeMirror === 'undefined') {
+            const error = new Error('Редактор не загрузился. Проверьте подключение к сети и перезагрузите страницу.');
+            error.reload = true; throw error;
+        }
+        if (!board || !Number.isSafeInteger(board.revision) || board.revision < 0 ||
+            typeof board.code_html !== 'string' || typeof board.code_css !== 'string') throw new Error('Сервер вернул некорректный документ.');
         currentBoardId = boardId;
         boardHistory.remember(boardId);
         
@@ -115,13 +137,16 @@ async function loadBoard(boardId) {
         document.getElementById('sync-status').hidden = false;
         
         initializeEditors(board);
+        clearNotice();
         connectWebSocket(boardId);
         updatePreview();
     } catch (error) {
-        console.error('Error loading board:', error);
-        alert(`Не удалось открыть доску. ${error.message} Ссылка сохранена в адресной строке — можно повторить позже.`);
+        currentBoardId = null;
+        showNotice(`Не удалось открыть доску. ${error.message} Ссылка остаётся в адресной строке.`,
+            { retry: error.reload ? () => window.location.reload() : error.permanent ? null : () => loadBoard(boardId),
+                label: error.reload ? 'Перезагрузить страницу' : 'Повторить' });
         loadBoardsList();
-    }
+    } finally { openingBoard = false; updateRetryControls(); }
 }
 
 function initializeEditors(board) {
@@ -179,15 +204,12 @@ function initializeEditors(board) {
                 method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(update),
             });
             if (!response.ok && response.status !== 409) {
-                const error = new Error(response.status === 413 ? 'Документ больше 512 КБ. Сократите код и повторите сохранение.' :
-                    `Сохранение не подтверждено (${response.status})`);
-                error.permanent = permanentStatus(response.status);
-                throw error;
+                throw responseError(response);
             }
             return { conflict: response.status === 409, board: response.board };
         },
         changed: renderDocumentState,
-        failed: error => { retryBlocked = !!error.permanent; ws?.close(); },
+        failed: error => { retryBlocked = !!error.permanent; ws?.close(); updateRetryControls(); },
     });
     documentSync.notify();
 
@@ -209,33 +231,47 @@ function initializeEditors(board) {
 
 function connectWebSocket(boardId) {
     clearTimeout(reconnectTimer);
+    if (!boardId || !documentSync || retryBlocked) return;
+    if (retryPolicy.remaining()) { scheduleReconnect(boardId, retryPolicy.remaining()); return; }
+    clearTimeout(socketTimer);
     if (ws) { ws.onclose = null; ws.close(); }
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/api/boards/${encodeURIComponent(boardId)}/ws`;
     
+    updateConnectionStatus(false);
     const socket = new WebSocket(wsUrl);
     ws = socket;
+    // Some proxies leave CONNECTING pending without an error event.
+    socketTimer = setTimeout(() => {
+        if (ws !== socket) return;
+        ws = null;
+        socket.onclose = null;
+        socket.close();
+        documentSync.disconnect();
+        updateConnectionStatus(false);
+        updateUserCount(0, false);
+        scheduleReconnect(boardId);
+    }, 10000);
     
     socket.onopen = async () => {
         if (ws !== socket) return;
-        updateConnectionStatus(true);
+        clearTimeout(socketTimer);
         updateUserCount(0, false);
-        await documentSync.reconnect();
-        if (documentSync.online) reconnectAttempts = 0;
+        socket.synchronizing = true;
+        try { await documentSync.reconnect(); } finally { socket.synchronizing = false; updateRetryControls(); }
+        if (ws !== socket) return;
+        updateConnectionStatus(documentSync.online);
+        if (documentSync.online) retryPolicy.reset();
     };
     
     socket.onclose = () => {
         if (ws !== socket) return;
+        clearTimeout(socketTimer);
+        ws = null;
         updateConnectionStatus(false);
         updateUserCount(0, false);
         documentSync.disconnect();
-        if (retryBlocked) return;
-        const delay = Math.min(30000, 1000 * 2 ** Math.min(reconnectAttempts++, 5));
-        reconnectTimer = setTimeout(() => {
-            if (currentBoardId === boardId) {
-                connectWebSocket(boardId);
-            }
-        }, delay + Math.random() * delay * .2);
+        if (!retryBlocked) scheduleReconnect(boardId);
     };
     
     socket.onmessage = (event) => {
@@ -247,6 +283,27 @@ function connectWebSocket(boardId) {
     socket.onerror = (error) => {
         console.error('WebSocket error:', error);
     };
+    updateRetryControls();
+}
+
+function scheduleReconnect(boardId, delay = retryPolicy.nextDelay()) {
+    clearTimeout(reconnectTimer);
+    // Long Retry-After values are checked in chunks to avoid timer overflow.
+    reconnectTimer = setTimeout(() => {
+        if (currentBoardId === boardId && !retryBlocked) connectWebSocket(boardId);
+    }, Math.min(delay, 60000));
+    updateRetryControls();
+}
+
+function resumeConnection() {
+    if (!currentBoardId || retryBlocked) return;
+    if (retryPolicy.remaining()) {
+        if (!ws || !documentSync.online) scheduleReconnect(currentBoardId, retryPolicy.remaining());
+        return;
+    }
+    if (ws?.synchronizing) return;
+    if (ws?.readyState === WebSocket.OPEN && documentSync.online) documentSync.refresh();
+    else if (!ws || ws.readyState !== WebSocket.CONNECTING) connectWebSocket(currentBoardId);
 }
 
 function handleWebSocketMessage(message) {
@@ -269,25 +326,41 @@ function sendUpdate() {
 }
 
 async function fetchBoardResult(url, options = {}) {
+    if (retryPolicy.remaining()) throw new Error(`Сервер просит подождать ${Math.ceil(retryPolicy.remaining() / 1000)} с.`);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 15000);
     try {
         const response = await fetch(url, { ...options, cache: 'no-store', signal: controller.signal });
+        if (response.status === 429 || response.status === 503) {
+            retryPolicy.hold(response.headers?.get('Retry-After'), response.headers?.get('Date'));
+            updateRetryControls();
+        }
         // Keep the deadline through the body read, not just response headers.
         const board = response.ok || response.status === 409 ? await response.json() : null;
         return { ok: response.ok, status: response.status, board };
     }
-    finally { clearTimeout(timeout); }
+    catch (error) {
+        if (error.name === 'AbortError') throw new Error('Сервер не ответил за 15 секунд. Повторите позже.');
+        if (error instanceof TypeError) throw new Error('Нет связи с сервером. Проверьте подключение к сети.');
+        throw error;
+    } finally { clearTimeout(timeout); }
 }
 
 function permanentStatus(status) { return status >= 400 && status < 500 && status !== 408 && status !== 429; }
 
+function responseError(response) {
+    const messages = { 403: 'Доступ запрещён. Проверьте адрес сайта или обратитесь к владельцу сервиса.',
+        404: 'Доска не найдена. Проверьте ссылку.', 413: 'Документ больше 512 КБ. Сократите код и повторите сохранение.',
+        429: 'Слишком много запросов. Дождитесь окончания паузы и повторите.', 503: 'Сервис временно недоступен. Повторите позже.' };
+    const error = new Error(messages[response.status] || `Запрос не подтверждён (${response.status}).`);
+    error.permanent = permanentStatus(response.status);
+    return error;
+}
+
 async function fetchBoardJSON(url, options) {
     const response = await fetchBoardResult(url, options);
     if (!response.ok) {
-        const error = new Error(response.status === 429 ? 'Слишком много запросов. Подождите минуту и повторите.' : `Сервер недоступен (${response.status})`);
-        error.permanent = permanentStatus(response.status);
-        throw error;
+        throw responseError(response);
     }
     return response.board;
 }
@@ -312,6 +385,7 @@ function renderDocumentState(state) {
     panel.hidden = state.conflicts.length === 0;
     document.getElementById('server-version').textContent = `HTML\n${state.remote.code_html}\n\nCSS\n${state.remote.code_css}`;
     document.getElementById('retry-save').hidden = !state.error;
+    updateRetryControls();
 }
 
 function updatePreview() {
@@ -350,11 +424,45 @@ function updateUserCount(count, available = true) {
     userCount.textContent = available ? `${count} user${count !== 1 ? 's' : ''}` : 'Участники: нет данных';
 }
 
-function shareBoard() {
-    const url = window.location.href;
-    navigator.clipboard.writeText(url).then(() => {
-        alert('Board URL copied to clipboard!');
-    }).catch(err => {
-        console.error('Error copying to clipboard:', err);
-    });
+function clearNotice() {
+    noticeRetry = null;
+    document.getElementById('app-notice').hidden = true;
+    document.getElementById('notice-link').value = '';
+}
+
+function showNotice(message, { retry = null, label = 'Повторить', kind = 'error', link = '' } = {}) {
+    noticeRetry = retry; noticeRetryLabel = label;
+    const panel = document.getElementById('app-notice');
+    panel.hidden = false; panel.dataset.kind = kind;
+    document.getElementById('notice-text').textContent = message;
+    const input = document.getElementById('notice-link');
+    input.hidden = !link; input.value = link;
+    updateRetryControls();
+}
+
+function updateRetryControls() {
+    clearTimeout(cooldownTimer);
+    const remaining = retryPolicy.remaining();
+    const label = `Повторить через ${Math.ceil(remaining / 1000)} с`;
+    document.getElementById('create-board').disabled = creatingBoard || openingBoard || remaining > 0;
+    const retry = document.getElementById('notice-retry');
+    retry.hidden = !noticeRetry;
+    retry.disabled = creatingBoard || openingBoard || remaining > 0;
+    retry.textContent = remaining ? label : noticeRetryLabel;
+    const save = document.getElementById('retry-save');
+    save.disabled = remaining > 0 || !!ws && (ws.readyState === 0 || ws.synchronizing);
+    save.textContent = remaining ? label : 'Повторить соединение';
+    if (remaining > 0) cooldownTimer = setTimeout(updateRetryControls, Math.min(1000, remaining));
+}
+
+async function shareBoard() {
+    if (!currentBoardId) return;
+    const url = `${window.location.origin}/#board=${encodeURIComponent(currentBoardId)}`;
+    try {
+        await navigator.clipboard.writeText(url);
+        showNotice('Ссылка скопирована. Любой получивший её может читать и редактировать доску.', { kind: 'success' });
+    } catch (_) {
+        showNotice('Автоматическое копирование недоступно. Выделите и скопируйте ссылку.', { link: url });
+        const input = document.getElementById('notice-link'); input.focus(); input.select();
+    }
 }

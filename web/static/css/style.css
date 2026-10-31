@@ -655,3 +655,13 @@ main { flex: 1; min-height: 0; height: auto; }
 .sync-conflict { max-height: 40vh; overflow: auto; border-color: var(--warning); }
 .sync-conflict pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 10rem; overflow: auto; }
 .conflict-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .5rem; }
+.app-notice { flex-shrink: 0; padding: .75rem 2rem; background: var(--bg-secondary); border-bottom: 1px solid var(--warning); max-height: 35vh; overflow: auto; overflow-wrap: anywhere; }
+.app-notice[data-kind="success"] { border-color: var(--success); }
+.app-notice[data-kind="info"] { border-color: var(--primary); }
+.notice-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .5rem; }
+#notice-link { display: block; width: 100%; margin-top: .5rem; padding: .5rem; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border); }
+.sync-status { flex-wrap: wrap; }
+.btn:disabled { opacity: .55; cursor: wait; }
+#notice-retry, #retry-save { background: var(--bg-tertiary); color: var(--primary); border: 1px solid var(--primary); }
+#notice-dismiss { background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border); }
+@media (max-width: 640px) { .app-notice, .sync-status, .sync-conflict { padding: .5rem 1rem; } }

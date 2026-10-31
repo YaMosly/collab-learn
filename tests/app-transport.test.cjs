@@ -21,6 +21,7 @@ test('the request deadline covers a stalled response body, not just headers', as
             } };
         },
     });
+    vm.runInContext(readFileSync(join(__dirname, '../web/static/js/retry-policy.js'), 'utf8'), context);
     vm.runInContext(readFileSync(join(__dirname, '../web/static/js/app.js'), 'utf8'), context);
     const response = vm.runInContext("fetchBoardResult('/api/boards/id')", context);
     await bodyEntered;
@@ -45,6 +46,7 @@ test('remote setValue events are suppressed synchronously without suppressing th
         } },
         setTimeout() { return 1; }, clearTimeout() {},
     });
+    vm.runInContext(readFileSync(join(__dirname, '../web/static/js/retry-policy.js'), 'utf8'), context);
     vm.runInContext(readFileSync(join(__dirname, '../web/static/js/app.js'), 'utf8'), context);
     vm.runInContext("initializeEditors({revision:0, code_html:'A', code_css:''})", context);
     vm.runInContext("handleWebSocketMessage({type:'update',data:{revision:1,code_html:'B',code_css:''}})", context);

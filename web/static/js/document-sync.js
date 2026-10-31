@@ -154,10 +154,12 @@
 
         async flush(attempt = 0) {
             if (!this.online || this.inFlight || !this.dirty || this.conflicts.size) return;
+            const generation = this.generation;
             const request = { base_revision: this.base.revision, ...copy(this.local) };
             this.inFlight = request;
             this.notify();
             let retry = false;
+            let conflictAttempt = 0;
             try {
                 const result = await this.options.write(request);
                 if (!valid(result.board)) throw new Error('Invalid save response');
@@ -170,6 +172,7 @@
                     // Merge only after inFlight has been cleared below.
                     if (!this.deferred || result.board.revision >= this.deferred.revision) this.deferred = result.board;
                     retry = true;
+                    conflictAttempt = attempt + 1;
                 } else {
                     if (result.board.revision !== request.base_revision + 1 || !equal(result.board, request)) {
                         throw new Error('Сервер не подтвердил отправленную версию');
@@ -182,15 +185,21 @@
                         }
                         this.base = { ...result.board };
                     }
-                    this.error = '';
+                    if (generation === this.generation) this.error = '';
                     this.uncertain = null;
                     retry = true;
                 }
             } catch (error) {
                 this.uncertain = request;
-                this.online = false;
-                this.error = error.message || 'Сохранение не подтверждено';
-                this.options.failed?.(error);
+                if (generation === this.generation) {
+                    this.online = false;
+                    this.error = error.message || 'Сохранение не подтверждено';
+                    this.options.failed?.(error);
+                } else {
+                    // A late failure from an older connection cannot close the
+                    // new session. Its uncertain write still needs CAS recovery.
+                    retry = this.online;
+                }
             } finally {
                 this.inFlight = null;
                 if (this.deferred) {
@@ -200,7 +209,7 @@
                 }
                 this.notify();
             }
-            if (retry) return this.flush(attempt + 1);
+            if (retry) return this.flush(generation === this.generation ? conflictAttempt : 0);
         }
 
         resolve(choice) {

@@ -41,6 +41,7 @@ def wait_status(path, expected):
 wait_status("/readyz", 200)
 assert request("/")[0] == 200
 assert request("/static/js/app.js")[0] == 200
+assert request("/static/js/retry-policy.js")[0] == 200
 assert request("/livez")[0] == 200
 assert request("/health")[0] == 200
 assert compose("exec", "-T", "app", "id", "-u") == "10001"

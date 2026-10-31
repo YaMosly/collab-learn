@@ -21,6 +21,14 @@
         </div>
     </header>
 
+    <section id="app-notice" class="app-notice" aria-label="Сообщение приложения" hidden>
+        <p id="notice-text" role="status" aria-live="polite"></p>
+        <input id="notice-link" aria-label="Ссылка для копирования" readonly hidden>
+        <div class="notice-actions">
+            <button id="notice-retry" class="btn btn-small" hidden>Повторить</button>
+            <button id="notice-dismiss" class="btn btn-small">Закрыть сообщение</button>
+        </div>
+    </section>
     <section id="sync-status" class="sync-status" aria-label="Сохранение документа" hidden>
         <span id="save-status" role="status" aria-live="polite"></span>
         <span id="draft-warning" role="alert"></span>
@@ -88,6 +96,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/comment/comment.min.js"></script>
     <script src="/static/js/document-sync.js"></script>
     <script src="/static/js/board-history.js"></script>
+    <script src="/static/js/retry-policy.js"></script>
     <script src="/static/js/app.js"></script>
 </body>
 </html>

@@ -54,6 +54,7 @@ jobs:
           node --check web/static/js/app.js
           node --check web/static/js/document-sync.js
           node --check web/static/js/board-history.js
+          node --check web/static/js/retry-policy.js
       - name: Go vet
         run: go vet ./...
       - name: Go tests, race detector, and native integrations
