@@ -7,6 +7,7 @@ const vm = require('node:vm');
 const root = join(__dirname, '..');
 const markup = readFileSync(join(root, 'web/static/index.html'), 'utf8');
 const client = readFileSync(join(root, 'web/static/js/app.js'), 'utf8');
+const policy = readFileSync(join(root, 'web/static/js/retry-policy.js'), 'utf8');
 
 function preview(html = '', css = '') {
     const frame = {};
@@ -20,6 +21,7 @@ function preview(html = '', css = '') {
         },
         html, css,
     });
+    vm.runInContext(policy, context);
     vm.runInContext(client, context);
     vm.runInContext(`
         htmlEditor = { getValue: () => html };

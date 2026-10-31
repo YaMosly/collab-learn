@@ -41,6 +41,7 @@ test('malformed or unavailable local storage cannot inject links or prevent open
 
 function appContext(extra = {}) {
     const context = vm.createContext({ document: { addEventListener() {} }, URLSearchParams, ...extra });
+    vm.runInContext(readFileSync(join(__dirname, '../web/static/js/retry-policy.js'), 'utf8'), context);
     vm.runInContext(readFileSync(join(__dirname, '../web/static/js/app.js'), 'utf8'), context);
     return context;
 }
@@ -67,12 +68,14 @@ test('legacy links are upgraded to fragments and rate limiting stays retryable',
 });
 
 test('a failed create reports the error and never redirects to an undefined board', async () => {
-    const button = {}, alerts = [];
-    const context = appContext({ document: { addEventListener() {}, getElementById() { return button; } },
-        window: { location: { href: '/' } }, alert: message => alerts.push(message),
+    const elements = new Map();
+    const context = appContext({ document: { addEventListener() {}, getElementById(id) {
+        if (!elements.has(id)) elements.set(id, { dataset: {} }); return elements.get(id);
+    } }, window: { location: { href: '/' } },
         fetch: async () => ({ ok: false, status: 429 }), AbortController, setTimeout, clearTimeout });
     await vm.runInContext('createNewBoard()', context);
-    assert.equal(button.disabled, false); assert.equal(alerts.length, 1);
+    assert.equal(elements.get('create-board').disabled, false);
+    assert.match(elements.get('notice-text').textContent, /Создание доски не подтверждено/);
     assert.equal(context.window.location.href, '/');
 });
 
