@@ -7,15 +7,21 @@ let documentSync = null;
 let reconnectTimer = null;
 let reconnectAttempts = 0;
 let retryBlocked = false;
+let boardHistory = null;
+let navigationConfirmed = false;
 
 document.addEventListener('DOMContentLoaded', () => {
     initializeApp();
 });
 
 function initializeApp() {
+    let storage;
+    try { storage = window.localStorage; } catch (_) { storage = null; }
+    boardHistory = new CollabBoardHistory(storage);
     document.getElementById('create-board').addEventListener('click', createNewBoard);
     document.getElementById('refresh-preview').addEventListener('click', updatePreview);
     document.getElementById('share-btn').addEventListener('click', shareBoard);
+    document.getElementById('clear-history').addEventListener('click', () => { boardHistory.clear(); loadBoardsList(); });
     document.getElementById('keep-local').addEventListener('click', () => documentSync?.resolve('local'));
     document.getElementById('use-server').addEventListener('click', () => documentSync?.resolve('server'));
     document.getElementById('retry-save').addEventListener('click', () => {
@@ -23,8 +29,9 @@ function initializeApp() {
         connectWebSocket(currentBoardId);
     });
     window.addEventListener('beforeunload', event => {
-        if (documentSync?.dirty || documentSync?.inFlight) { event.preventDefault(); event.returnValue = ''; }
+        if (!navigationConfirmed && (documentSync?.dirty || documentSync?.inFlight)) { event.preventDefault(); event.returnValue = ''; }
     });
+    window.addEventListener('hashchange', handleHashNavigation);
 
     const boardId = getBoardIdFromURL();
     if (boardId) {
@@ -35,62 +42,73 @@ function initializeApp() {
 }
 
 function getBoardIdFromURL() {
-    const params = new URLSearchParams(window.location.search);
-    return params.get('board');
+    const fragment = new URLSearchParams(window.location.hash.slice(1)).get('board');
+    const legacy = new URLSearchParams(window.location.search).get('board');
+    const id = fragment || legacy;
+    if (legacy && id) window.history.replaceState(null, '', `/#board=${encodeURIComponent(id)}`);
+    return id;
+}
+
+function handleHashNavigation() {
+    if (getBoardIdFromURL() === currentBoardId) return;
+    if ((documentSync?.dirty || documentSync?.inFlight) &&
+        !window.confirm('Есть неподтверждённые изменения. Черновик останется в этой вкладке. Перейти на другую доску?')) {
+        window.history.replaceState(null, '', `/#board=${encodeURIComponent(currentBoardId)}`);
+        return;
+    }
+    navigationConfirmed = true;
+    window.location.reload();
 }
 
 async function createNewBoard() {
+    const button = document.getElementById('create-board');
+    button.disabled = true;
     try {
-        const response = await fetch('/api/boards', {
+        const board = await fetchBoardJSON('/api/boards', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' }
         });
-        const board = await response.json();
-        window.location.href = `/?board=${board.id}`;
+        boardHistory.remember(board.id);
+        // A document navigation also works when another board is already open;
+        // initializeApp converts the compatibility query to a shareable fragment.
+        window.location.href = `/?board=${encodeURIComponent(board.id)}`;
     } catch (error) {
-        console.error('Error creating board:', error);
-    }
+        alert(`Не удалось создать доску. ${error.message}`);
+    } finally { button.disabled = false; }
 }
 
-async function loadBoardsList() {
-    try {
-        const response = await fetch('/api/boards');
-        const boards = await response.json();
-        
-        const container = document.getElementById('boards-container');
-        container.innerHTML = '';
-        
-        if (!boards || boards.length === 0) {
-            container.innerHTML = '<p>No boards available. Create a new one!</p>';
-            return;
-        }
-        
-        boards.forEach(board => {
-            const boardElement = createBoardElement(board);
-            container.appendChild(boardElement);
-        });
-    } catch (error) {
-        console.error('Error loading boards:', error);
+function loadBoardsList() {
+    const boards = boardHistory.list();
+    document.getElementById('board-message').textContent = boardHistory.available ? '' :
+        'История браузера недоступна. Сохраните ссылку на доску самостоятельно.';
+    const container = document.getElementById('boards-container');
+    container.innerHTML = '';
+    if (boards.length === 0) {
+        container.textContent = 'Здесь появятся доски, которые вы откроете. Создайте новую или перейдите по ссылке.';
+        return;
     }
+    boards.forEach(board => container.appendChild(createBoardElement(board)));
 }
 
 function createBoardElement(board) {
     const div = document.createElement('div');
     div.className = 'board-item';
-    div.innerHTML = `
-        <h3>Board ${board.id.substring(0, 8)}</h3>
-        <p>Updated: ${new Date(board.updated_at).toLocaleString()}</p>
-    `;
+    const title = document.createElement('h3');
+    title.textContent = `Board ${board.id.substring(0, 8)}`;
+    const opened = document.createElement('p');
+    opened.textContent = `Открыта: ${new Date(board.openedAt).toLocaleString()}`;
+    div.append(title, opened);
     div.addEventListener('click', () => {
-        window.location.href = `/?board=${board.id}`;
+        window.location.href = `/?board=${encodeURIComponent(board.id)}`;
     });
     return div;
 }
 
 async function loadBoard(boardId) {
     try {
-        const board = await fetchBoardJSON(`/api/boards/${boardId}`);
+        const board = await fetchBoardJSON(`/api/boards/${encodeURIComponent(boardId)}`);
         currentBoardId = boardId;
+        boardHistory.remember(boardId);
         
         document.getElementById('boards-list').style.display = 'none';
         document.getElementById('editor-container').style.display = 'grid';
@@ -101,8 +119,8 @@ async function loadBoard(boardId) {
         updatePreview();
     } catch (error) {
         console.error('Error loading board:', error);
-        alert('Board not found');
-        window.location.href = '/';
+        alert(`Не удалось открыть доску. ${error.message} Ссылка сохранена в адресной строке — можно повторить позже.`);
+        loadBoardsList();
     }
 }
 
@@ -155,15 +173,15 @@ function initializeEditors(board) {
     try { storage = window.sessionStorage; } catch (_) { storage = null; }
     documentSync = new CollabDocumentSync(board, {
         storage, key: `collablearn:draft:${currentBoardId}`,
-        read: () => fetchBoardJSON(`/api/boards/${currentBoardId}`),
+        read: () => fetchBoardJSON(`/api/boards/${encodeURIComponent(currentBoardId)}`),
         write: async update => {
-            const response = await fetchBoardResult(`/api/boards/${currentBoardId}`, {
+            const response = await fetchBoardResult(`/api/boards/${encodeURIComponent(currentBoardId)}`, {
                 method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(update),
             });
             if (!response.ok && response.status !== 409) {
                 const error = new Error(response.status === 413 ? 'Документ больше 512 КБ. Сократите код и повторите сохранение.' :
                     `Сохранение не подтверждено (${response.status})`);
-                error.permanent = response.status >= 400 && response.status < 500;
+                error.permanent = permanentStatus(response.status);
                 throw error;
             }
             return { conflict: response.status === 409, board: response.board };
@@ -193,7 +211,7 @@ function connectWebSocket(boardId) {
     clearTimeout(reconnectTimer);
     if (ws) { ws.onclose = null; ws.close(); }
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/api/boards/${boardId}/ws`;
+    const wsUrl = `${protocol}//${window.location.host}/api/boards/${encodeURIComponent(boardId)}/ws`;
     
     const socket = new WebSocket(wsUrl);
     ws = socket;
@@ -262,11 +280,13 @@ async function fetchBoardResult(url, options = {}) {
     finally { clearTimeout(timeout); }
 }
 
-async function fetchBoardJSON(url) {
-    const response = await fetchBoardResult(url);
+function permanentStatus(status) { return status >= 400 && status < 500 && status !== 408 && status !== 429; }
+
+async function fetchBoardJSON(url, options) {
+    const response = await fetchBoardResult(url, options);
     if (!response.ok) {
-        const error = new Error(`Сервер недоступен (${response.status})`);
-        error.permanent = response.status >= 400 && response.status < 500;
+        const error = new Error(response.status === 429 ? 'Слишком много запросов. Подождите минуту и повторите.' : `Сервер недоступен (${response.status})`);
+        error.permanent = permanentStatus(response.status);
         throw error;
     }
     return response.board;

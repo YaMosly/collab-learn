@@ -20,7 +20,6 @@ type BoardRepository interface {
 	CreateBoard(context.Context, string) (*models.Board, error)
 	GetBoard(context.Context, string) (*models.Board, error)
 	SaveBoard(context.Context, string, int64, string, string) (*models.Board, error)
-	ListBoards(context.Context) ([]models.Board, error)
 }
 
 type BoardHandler struct {
@@ -110,13 +109,4 @@ func (h *BoardHandler) UpdateBoard(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	boardResponse(w, http.StatusOK, board)
-}
-
-func (h *BoardHandler) ListBoards(w http.ResponseWriter, r *http.Request) {
-	boards, err := h.db.ListBoards(r.Context())
-	if err != nil {
-		boardError(w, err)
-		return
-	}
-	boardResponse(w, http.StatusOK, boards)
 }

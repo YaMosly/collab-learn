@@ -1,6 +1,7 @@
 package config
 
 import (
+	"collab-learn/internal/access"
 	"fmt"
 	"net"
 	"net/url"
@@ -11,6 +12,7 @@ import (
 type Config struct {
 	HTTPAddress, ProbeURL, DatabaseURL, RedisAddress string
 	StartupTimeout                                   time.Duration
+	PublicOrigin                                     string
 }
 
 // Load validates configuration without including secret values in errors.
@@ -67,6 +69,10 @@ func Load(getenv func(string) string) (Config, error) {
 		return c, fmt.Errorf("STARTUP_TIMEOUT must be between 1s and 5m")
 	}
 	c.StartupTimeout = timeout
+	c.PublicOrigin = getenv("PUBLIC_ORIGIN")
+	if err := access.ValidateOrigin(c.PublicOrigin); err != nil {
+		return c, err
+	}
 	return c, nil
 }
 

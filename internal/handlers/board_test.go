@@ -38,9 +38,6 @@ func (m *memoryBoards) GetBoard(_ context.Context, id string) (*models.Board, er
 func (m *memoryBoards) CreateBoard(ctx context.Context, id string) (*models.Board, error) {
 	return m.GetBoard(ctx, id)
 }
-func (m *memoryBoards) ListBoards(context.Context) ([]models.Board, error) {
-	return []models.Board{}, nil
-}
 func (m *memoryBoards) SaveBoard(_ context.Context, id string, revision int64, html, css string) (*models.Board, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

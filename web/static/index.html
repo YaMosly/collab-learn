@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="referrer" content="no-referrer">
     <title>CollabLearn - Collaborative Web Development</title>
     <link rel="stylesheet" href="/static/css/style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.css">
@@ -37,6 +38,9 @@
     <main id="main-content">
         <div class="boards-list" id="boards-list">
             <h2>Recent Boards</h2>
+            <p>Доски, открытые в этом браузере. Любой получивший ссылку может читать и редактировать доску.</p>
+            <p id="board-message" role="status" aria-live="polite"></p>
+            <button id="clear-history" class="btn btn-small">Очистить список этого браузера</button>
             <div id="boards-container"></div>
         </div>
 
@@ -83,6 +87,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/selection/active-line.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/comment/comment.min.js"></script>
     <script src="/static/js/document-sync.js"></script>
+    <script src="/static/js/board-history.js"></script>
     <script src="/static/js/app.js"></script>
 </body>
 </html>

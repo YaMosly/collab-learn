@@ -39,20 +39,3 @@ func (db *DB) SaveBoard(ctx context.Context, id string, revision int64, html, cs
 	}
 	return current, ErrConflict
 }
-
-func (db *DB) ListBoards(ctx context.Context) ([]models.Board, error) {
-	rows, err := db.QueryContext(ctx, "SELECT "+boardColumns+" FROM boards ORDER BY updated_at DESC LIMIT 50")
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	boards := make([]models.Board, 0)
-	for rows.Next() {
-		board, err := scanBoard(rows)
-		if err != nil {
-			return nil, err
-		}
-		boards = append(boards, *board)
-	}
-	return boards, rows.Err()
-}

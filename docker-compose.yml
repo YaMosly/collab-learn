@@ -11,6 +11,7 @@ services:
       - DB_NAME=${DB_NAME:-collablearn}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - PUBLIC_ORIGIN=${PUBLIC_ORIGIN:-}
     depends_on:
       postgres:
         condition: service_healthy
