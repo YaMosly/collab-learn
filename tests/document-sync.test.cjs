@@ -208,3 +208,36 @@ test('a lost response merges a newer edit with another writer’s CSS after relo
     const restored = client(api, { storage: draft }); await restored.reconnect();
     assert.deepEqual(api.current, board(3, 'AB', 'remote CSS')); assert.deepEqual(restored.state().conflicts, []);
 });
+
+test('periodic refresh recovers a missing notification without losing local HTML', async () => {
+    const api = server(), c = client(api);
+    await c.reconnect(); edit(c, 'local HTML');
+    await api.write({ base_revision: 0, code_html: '', code_css: 'missed CSS' });
+    await c.refresh();
+    assert.deepEqual(api.current, board(2, 'local HTML', 'missed CSS'));
+    assert.equal(c.online, true); assert.deepEqual(c.state().conflicts, []);
+});
+
+test('refresh keeps both versions when a missed update conflicts in the same field', async () => {
+    const api = server(), c = client(api);
+    await c.reconnect(); edit(c, 'local');
+    await api.write({ base_revision: 0, code_html: 'remote', code_css: '' });
+    await c.refresh();
+    assert.equal(c.local.code_html, 'local'); assert.equal(api.current.code_html, 'remote');
+    assert.deepEqual(c.state().conflicts, ['code_html']);
+});
+
+test('a stale refresh response cannot overwrite a disconnected draft', async () => {
+    const api = server(), pending = deferred(); let initial = true;
+    const c = client(api, { read: () => { if (initial) { initial = false; return api.read(); } return pending.promise; } });
+    await c.reconnect(); const refreshing = c.refresh(); c.disconnect(); edit(c, 'offline draft');
+    pending.resolve(board(1, 'stale network result')); await refreshing;
+    assert.equal(c.online, false); assert.equal(c.local.code_html, 'offline draft'); assert.equal(c.base.revision, 0);
+});
+
+test('refresh failures keep the draft and request reconnect', async () => {
+    const api = server(); let initial = true, failures = 0;
+    const c = client(api, { read: async () => { if (initial) { initial = false; return api.read(); } throw new Error('network'); }, failed: () => { failures++; } });
+    await c.reconnect(); edit(c, 'draft'); await c.refresh();
+    assert.equal(c.online, false); assert.equal(c.local.code_html, 'draft'); assert.equal(failures, 1);
+});

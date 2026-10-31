@@ -4,36 +4,29 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"time"
 
-	"github.com/redis/go-redis/v9"
+	goredis "github.com/redis/go-redis/v9"
 )
 
-type Client struct {
-	*redis.Client
-	ctx context.Context
-}
+const BoardPattern = "board:*"
+const PresencePattern = "presence:*"
+const PresenceTTL = 60 * time.Second
+
+type Client struct{ *goredis.Client }
 
 func NewClient(host, port string) (*Client, error) {
-	ctx := context.Background()
-	
-	rdb := redis.NewClient(&redis.Options{
-		Addr:         fmt.Sprintf("%s:%s", host, port),
-		Password:     "",
-		DB:           0,
-		PoolSize:     10,
-		MinIdleConns: 2,
-		MaxRetries:   3,
-	})
-
+	rdb := goredis.NewClient(&goredis.Options{Addr: net.JoinHostPort(host, port),
+		PoolSize: 10, MinIdleConns: 2, MaxRetries: 1, ContextTimeoutEnabled: true,
+		DialTimeout: 2 * time.Second, ReadTimeout: 2 * time.Second, WriteTimeout: 2 * time.Second, PoolTimeout: 2 * time.Second})
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
 	if err := rdb.Ping(ctx).Err(); err != nil {
+		rdb.Close()
 		return nil, err
 	}
-
-	return &Client{
-		Client: rdb,
-		ctx:    ctx,
-	}, nil
+	return &Client{rdb}, nil
 }
 
 func (c *Client) PublishBoardUpdate(boardID string, update interface{}) error {
@@ -41,55 +34,90 @@ func (c *Client) PublishBoardUpdate(boardID string, update interface{}) error {
 	if err != nil {
 		return err
 	}
-
-	channel := fmt.Sprintf("board:%s", boardID)
-	return c.Publish(c.ctx, channel, data).Err()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	return c.Publish(ctx, "board:"+boardID, data).Err()
 }
 
-func (c *Client) SubscribeToBoard(boardID string) *redis.PubSub {
-	channel := fmt.Sprintf("board:%s", boardID)
-	return c.Subscribe(c.ctx, channel)
-}
-
-func (c *Client) IncrementConnections(boardID string) (int64, error) {
-	key := fmt.Sprintf("connections:%s", boardID)
-	return c.Incr(c.ctx, key).Result()
-}
-
-func (c *Client) DecrementConnections(boardID string) (int64, error) {
-	key := fmt.Sprintf("connections:%s", boardID)
-	return c.Decr(c.ctx, key).Result()
-}
-
-func (c *Client) GetConnections(boardID string) (int64, error) {
-	key := fmt.Sprintf("connections:%s", boardID)
-	val, err := c.Get(c.ctx, key).Result()
-	if err == redis.Nil {
-		return 0, nil
+// One acknowledged pattern subscription covers rooms created after startup.
+// Receive must not be used after the caller starts ChannelWithSubscriptions.
+func (c *Client) SubscribeEvents(ctx context.Context) (*goredis.PubSub, error) {
+	pubsub := c.PSubscribe(ctx, BoardPattern, PresencePattern)
+	pending := map[string]bool{BoardPattern: true, PresencePattern: true}
+	deadline := time.Now().Add(3 * time.Second)
+	for len(pending) > 0 {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			pubsub.Close()
+			return nil, fmt.Errorf("Redis subscription readiness timed out")
+		}
+		message, err := pubsub.ReceiveTimeout(ctx, remaining)
+		if err != nil {
+			pubsub.Close()
+			return nil, err
+		}
+		if sub, ok := message.(*goredis.Subscription); ok && sub.Kind == "psubscribe" {
+			delete(pending, sub.Channel)
+		}
 	}
-	if err != nil {
-		return 0, err
-	}
-	
-	var count int64
-	fmt.Sscanf(val, "%d", &count)
-	return count, nil
+	return pubsub, nil
 }
 
-func (c *Client) CacheBoard(boardID string, data interface{}, expiration time.Duration) error {
-	key := fmt.Sprintf("board:cache:%s", boardID)
-	jsonData, err := json.Marshal(data)
-	if err != nil {
-		return err
-	}
-	return c.Set(c.ctx, key, jsonData, expiration).Err()
+// Redis server time is shared by all nodes. Each WebSocket owns an expiring
+// sorted-set member; a lost remove can only leave a temporary lease.
+const presenceLua = `
+local clock = redis.call('TIME')
+local now = tonumber(clock[1]) * 1000 + math.floor(tonumber(clock[2]) / 1000)
+local before = redis.call('ZCARD', KEYS[1])
+local exists = redis.call('ZSCORE', KEYS[1], ARGV[1])
+redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', now)
+if ARGV[2] == 'renew' then
+  redis.call('ZADD', KEYS[1], now + tonumber(ARGV[4]), ARGV[1])
+else
+  redis.call('ZREM', KEYS[1], ARGV[1])
+end
+local count = redis.call('ZCARD', KEYS[1])
+if count == 0 then redis.call('DEL', KEYS[1])
+else redis.call('PEXPIRE', KEYS[1], tonumber(ARGV[4]) + 15000) end
+if before ~= count or (ARGV[2] == 'renew' and not exists) or ARGV[5] == 'announce' then
+  redis.call('PUBLISH', ARGV[3], tostring(count))
+end
+return count
+`
+
+var presenceScript = goredis.NewScript(presenceLua)
+
+type PresenceChange struct {
+	BoardID, ClientID string
+	Renew, Announce   bool
 }
 
-func (c *Client) GetCachedBoard(boardID string, dest interface{}) error {
-	key := fmt.Sprintf("board:cache:%s", boardID)
-	val, err := c.Get(c.ctx, key).Result()
-	if err != nil {
-		return err
+func (p PresenceChange) args() []interface{} {
+	op, event := "remove", "quiet"
+	if p.Renew {
+		op = "renew"
 	}
-	return json.Unmarshal([]byte(val), dest)
+	if p.Announce {
+		event = "announce"
+	}
+	return []interface{}{p.ClientID, op, "presence:" + p.BoardID, PresenceTTL.Milliseconds(), event}
+}
+
+// Pipeline leases so one slow network round-trip per user cannot starve the
+// remaining users' heartbeats. Each individual Lua operation stays atomic.
+func (c *Client) UpdatePresenceBatch(ctx context.Context, changes []PresenceChange) error {
+	if len(changes) == 0 {
+		return nil
+	}
+	pipe := c.Pipeline()
+	for _, change := range changes {
+		pipe.Eval(ctx, presenceLua, []string{"connections:v2:" + change.BoardID}, change.args()...)
+	}
+	_, err := pipe.Exec(ctx)
+	return err
+}
+
+func (c *Client) UpdatePresence(ctx context.Context, boardID, clientID string, renew, announce bool) error {
+	change := PresenceChange{boardID, clientID, renew, announce}
+	return presenceScript.Run(ctx, c.Client, []string{"connections:v2:" + boardID}, change.args()...).Err()
 }
