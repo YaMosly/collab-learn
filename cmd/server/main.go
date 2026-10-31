@@ -1,6 +1,7 @@
 package main
 
 import (
+	"collab-learn/internal/access"
 	"collab-learn/internal/config"
 	"collab-learn/internal/database"
 	"collab-learn/internal/handlers"
@@ -18,7 +19,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/go-chi/cors"
 )
 
 func main() {
@@ -88,36 +88,31 @@ func run() error {
 
 	r := chi.NewRouter()
 
-	r.Use(middleware.Logger)
+	r.Use(access.Headers)
+	r.Use(access.Logger)
 	r.Use(middleware.Recoverer)
-	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"*"},
-		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Accept", "Content-Type", "Content-Length", "Authorization"},
-		ExposedHeaders:   []string{"Link"},
-		AllowCredentials: true,
-		MaxAge:           300,
-	}))
 
 	boardHandler := handlers.NewBoardHandler(db, redisClient, hub.BroadcastBoard)
-	wsHandler := websocket.NewWSHandler(hub, db)
+	wsHandler := websocket.NewWSHandler(hub, db, cfg.PublicOrigin)
 	status := &health.Handler{Database: db.PingContext, Redis: func(ctx context.Context) error { return redisClient.Ping(ctx).Err() }, Hub: hub.Active}
 	r.Get("/health", status.Live)
 	r.Get("/livez", status.Live)
 	r.Get("/readyz", status.Ready)
 
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
 		http.ServeFile(w, r, "web/static/index.html")
 	})
 
 	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.Dir("web/static"))))
 
 	r.Route("/api", func(r chi.Router) {
-		r.Post("/boards", boardHandler.CreateBoard)
-		r.Get("/boards", boardHandler.ListBoards)
+		r.Use(access.SameOrigin(cfg.PublicOrigin))
+		r.Use(access.Limit(redisClient, access.API))
+		r.With(access.Limit(redisClient, access.Create)).Post("/boards", boardHandler.CreateBoard)
 		r.Get("/boards/{id}", boardHandler.GetBoard)
 		r.Put("/boards/{id}", boardHandler.UpdateBoard)
-		r.Get("/boards/{id}/ws", wsHandler.HandleWebSocket)
+		r.With(access.Limit(redisClient, access.Socket)).Get("/boards/{id}/ws", wsHandler.HandleWebSocket)
 	})
 
 	srv := &http.Server{

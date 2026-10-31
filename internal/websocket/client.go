@@ -1,6 +1,7 @@
 package websocket
 
 import (
+	"collab-learn/internal/access"
 	"collab-learn/internal/models"
 	"context"
 	"database/sql"
@@ -22,31 +23,29 @@ const (
 	sendQueueSize  = 16
 )
 
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	CheckOrigin: func(r *http.Request) bool {
-		return true
-	},
-}
-
 type WSHandler struct {
-	hub *Hub
-	db  BoardReader
+	hub          *Hub
+	db           BoardReader
+	publicOrigin string
 }
 
 type BoardReader interface {
 	GetBoard(context.Context, string) (*models.Board, error)
 }
 
-func NewWSHandler(hub *Hub, db BoardReader) *WSHandler {
+func NewWSHandler(hub *Hub, db BoardReader, publicOrigin string) *WSHandler {
 	return &WSHandler{
-		hub: hub,
-		db:  db,
+		hub:          hub,
+		db:           db,
+		publicOrigin: publicOrigin,
 	}
 }
 
 func (h *WSHandler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
+	if !access.OriginAllowed(r, h.publicOrigin) {
+		http.Error(w, "Origin denied", http.StatusForbidden)
+		return
+	}
 	boardID := chi.URLParam(r, "id")
 	if _, err := h.db.GetBoard(r.Context(), boardID); err != nil {
 		status := http.StatusServiceUnavailable
@@ -57,6 +56,8 @@ func (h *WSHandler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	upgrader := websocket.Upgrader{ReadBufferSize: 1024, WriteBufferSize: 1024,
+		CheckOrigin: func(r *http.Request) bool { return access.OriginAllowed(r, h.publicOrigin) }}
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("WebSocket upgrade error: %v", err)
@@ -93,6 +94,9 @@ func (c *Client) readPump(conn *websocket.Conn) {
 		return nil
 	})
 
+	// This channel is server-to-client. Bound unsolicited messages from old or
+	// hostile clients as well as frame size, without limiting ping/pong control.
+	window, messages := time.Now(), 0
 	for {
 		var msg Message
 		err := conn.ReadJSON(&msg)
@@ -101,6 +105,13 @@ func (c *Client) readPump(conn *websocket.Conn) {
 				log.Printf("WebSocket error: %v", err)
 			}
 			break
+		}
+		if time.Since(window) >= time.Minute {
+			window, messages = time.Now(), 0
+		}
+		messages++
+		if messages > 10 {
+			return
 		}
 
 		switch msg.Type {

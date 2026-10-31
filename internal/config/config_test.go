@@ -29,6 +29,7 @@ func TestInvalidConfiguration(t *testing.T) {
 	for _, tc := range []struct{ key, value string }{
 		{"DB_PASSWORD", ""}, {"DB_PORT", "0"}, {"REDIS_PORT", "70000"}, {"PORT", "abc"},
 		{"HTTP_HOST", "bad/host"}, {"DB_SSLMODE", "bad"}, {"STARTUP_TIMEOUT", "1ms"}, {"STARTUP_TIMEOUT", "6m"},
+		{"PUBLIC_ORIGIN", "https://example.org/path"},
 	} {
 		t.Run(tc.key+tc.value, func(t *testing.T) {
 			_, err := Load(func(key string) string {
