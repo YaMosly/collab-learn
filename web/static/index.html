@@ -58,25 +58,35 @@
         </div>
 
         <div class="editor-container" id="editor-container" style="display: none;">
-            <div class="editor-panel">
+            <div id="editor-tabs" class="editor-tabs" role="tablist" aria-label="Панели редактора" hidden>
+                <button type="button" id="html-tab" role="tab" aria-controls="html-panel" aria-selected="true">HTML</button>
+                <button type="button" id="css-tab" role="tab" aria-controls="css-panel" aria-selected="false" tabindex="-1">CSS</button>
+                <button type="button" id="preview-tab" role="tab" aria-controls="preview-panel" aria-selected="false" tabindex="-1">Preview</button>
+            </div>
+            <p id="splitter-help" class="sr-only">Размер панелей: стрелки влево и вправо; Shift — большой шаг; Home и End — пределы. Двойной щелчок восстанавливает равную ширину.</p>
+            <div id="editor-panels" class="editor-panels">
+            <section class="editor-panel" id="html-panel" role="region" aria-labelledby="html-heading">
                 <div class="editor-header">
-                    <h3>HTML</h3>
+                    <h3 id="html-heading">HTML</h3>
                     <button class="btn btn-small" id="share-btn">Share</button>
                 </div>
                 <textarea id="html-editor"></textarea>
-            </div>
-            <div class="editor-panel">
+            </section>
+            <div id="html-splitter" class="panel-splitter" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Ширина HTML и CSS" aria-controls="html-panel css-panel" aria-describedby="splitter-help"></div>
+            <section class="editor-panel" id="css-panel" role="region" aria-labelledby="css-heading">
                 <div class="editor-header">
-                    <h3>CSS</h3>
+                    <h3 id="css-heading">CSS</h3>
                 </div>
                 <textarea id="css-editor"></textarea>
-            </div>
-            <div class="preview-panel">
+            </section>
+            <div id="css-splitter" class="panel-splitter" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Ширина CSS и Preview" aria-controls="css-panel preview-panel" aria-describedby="splitter-help"></div>
+            <section class="preview-panel" id="preview-panel" role="region" aria-labelledby="preview-heading">
                 <div class="editor-header">
-                    <h3>Preview</h3>
+                    <h3 id="preview-heading">Preview</h3>
                     <button class="btn btn-small" id="refresh-preview">Refresh</button>
                 </div>
                 <iframe id="preview-frame" title="HTML and CSS preview" sandbox="" referrerpolicy="no-referrer"></iframe>
+            </section>
             </div>
         </div>
     </main>
@@ -105,6 +115,7 @@
     <script src="/static/js/board-history.js"></script>
     <script src="/static/js/retry-policy.js"></script>
     <script src="/static/js/source-export.js"></script>
+    <script src="/static/js/panel-layout.js"></script>
     <script src="/static/js/app.js"></script>
 </body>
 </html>

@@ -15,6 +15,7 @@ let noticeRetryLabel = 'Повторить';
 let retryBlocked = false;
 let boardHistory = null;
 let navigationConfirmed = false;
+let panelLayout = null;
 
 document.addEventListener('DOMContentLoaded', () => {
     initializeApp();
@@ -135,10 +136,11 @@ async function loadBoard(boardId) {
         boardHistory.remember(boardId);
         
         document.getElementById('boards-list').style.display = 'none';
-        document.getElementById('editor-container').style.display = 'grid';
+        document.getElementById('editor-container').style.display = 'flex';
         document.getElementById('sync-status').hidden = false;
         
         initializeEditors(board);
+        panelLayout = new CollabPanelLayout({ root: document.getElementById('editor-container'), editors: { html: htmlEditor, css: cssEditor } });
         clearNotice();
         connectWebSocket(boardId);
         updatePreview();
