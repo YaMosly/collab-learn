@@ -1,0 +1,37 @@
+name: Ошибка
+description: Сообщить о воспроизводимой проблеме
+title: '[Bug] '
+labels: [bug]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Что произошло
+      description: Опишите проблему и её влияние на работу.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Как воспроизвести
+      description: Шаги на тестовой доске, без приватных ссылок и кода.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Ожидаемый результат
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Окружение
+      placeholder: Версия/коммит приложения, браузер, ОС, Docker или локальный запуск
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Дополнительные сведения
+      description: Текст ошибки или скриншот без секретов, токенов и приватных ссылок.

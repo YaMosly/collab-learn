@@ -1,0 +1,30 @@
+name: Улучшение
+description: Описать следующий законченный этап
+title: '[Feature] '
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Какую проблему решаем
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: Ожидаемое поведение
+      description: Опишите результат для пользователя.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Критерии готовности
+      description: Как проверить, что задача выполнена.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Ограничения и открытые вопросы
+      description: Совместимость, зависимости и решения, которые нужно согласовать.
