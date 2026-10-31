@@ -11,7 +11,6 @@
 
 Текущие следующие этапы:
 
-- [#8 — локальная поставка зависимостей редактора](https://github.com/YaMosly/collab-learn/issues/8).
 - [#9 — экспорт HTML/CSS и неподтверждённого черновика](https://github.com/YaMosly/collab-learn/issues/9).
 - [#10 — панели редактора на узком экране](https://github.com/YaMosly/collab-learn/issues/10).
 - [#11 — согласование прав чтения и редактирования](https://github.com/YaMosly/collab-learn/issues/11).
@@ -41,6 +40,7 @@ node --check web/static/js/app.js
 node --check web/static/js/document-sync.js
 node --check web/static/js/board-history.js
 node --check web/static/js/retry-policy.js
+python tools/vendor-codemirror.py --check
 ```
 
 Go:

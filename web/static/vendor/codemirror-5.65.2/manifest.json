@@ -1,0 +1,33 @@
+{
+  "package": "codemirror",
+  "version": "5.65.2",
+  "source": "https://registry.npmjs.org/codemirror/-/codemirror-5.65.2.tgz",
+  "integrity": "sha512-SZM4Zq7XEC8Fhroqe3LxbEEX1zUPWH1wMr5zxiBuiUF64iYOUH/JI88v4tBag8MiBS8B8gRv8O1pPXGYXQ4ErA==",
+  "files": {
+    "LICENSE": "a3f2fe2ac6b471aa80c737c5d283dd049bdc903a73835ee6d4d2cac02fdd53bf",
+    "lib/codemirror.js": "62caa339e229c744c2a9c9cae22b8e79edc986fc2ab74803783409c994e2d1ac",
+    "lib/codemirror.css": "eb494ea972d2661ef86f7f6ac656dd6786d721e49c9c1b46e1eb967e4b6f9bf3",
+    "theme/material-ocean.css": "730d860562b4687aa07d5b0aa589127d6ae329dfdaab129db21862eac9570e7b",
+    "mode/xml/xml.js": "be0932928bfb05085d4e6362250523f05a13492091e9d7b299309a97a3212dd3",
+    "mode/css/css.js": "02938e4d217573c436697ca98df0da3ca3104fb596545f7c415824cbe81fa50a",
+    "mode/javascript/javascript.js": "11bbd7480232f454c088cd283576e5132f65097dfedc9572ad3582d9a5533641",
+    "mode/htmlmixed/htmlmixed.js": "c4c925a02ef446dde7a0ed66237d7aa479aa206cea8491895f7567d7e21a5c8a",
+    "addon/edit/closebrackets.js": "5ed9c96eb2d4a2157b89e7759d149ff88589b3180348c978354b65044739a2c2",
+    "addon/edit/closetag.js": "f84bd2c5ca446de93dd249002df303d42669276c6e274362935abca0ca195405",
+    "addon/edit/matchbrackets.js": "46835206de28f6699b86ecc8bfa5c9cc06ad892084640beeed553d2953389b5c",
+    "addon/edit/matchtags.js": "a020308fa3f5fc1cc04c4b87310c4b39638d5e440787814bcfc2457081fffa14",
+    "addon/fold/foldcode.js": "937ecf19f5a38f349a57f3afeb3c607ee6318005ece1ca3e0b36c728492778e7",
+    "addon/fold/foldgutter.js": "523a9b2814dc2706a78b77d79dbdc1e945a0b85f22118028b8cb139f8db948a5",
+    "addon/fold/foldgutter.css": "576efcd340b770b60d77d8c29e9df36bf58576391beab51b439114e4ed01ac56",
+    "addon/fold/brace-fold.js": "4330c591f64194aa0c7d1312766996750813e7b6a4634e201ab9880d7a181a71",
+    "addon/fold/xml-fold.js": "eaaaf36bdf0132366a70f1ac87bc69c1e58d2f9d9657b2a6a02cfa354900d6aa",
+    "addon/fold/comment-fold.js": "bb1aea31fce9c299eb7575bb9deb92601ac5d1d4a4cc729edaec184089831e51",
+    "addon/hint/show-hint.js": "ca0d04494d83946491152231154d84b2b2e737fb415ef2d810b7bcebdef3c96d",
+    "addon/hint/show-hint.css": "f4f8c8d48c155dcbf8e04dfb29b0d500974460d08204adfe0dda3be7bb3a2fc8",
+    "addon/hint/xml-hint.js": "e8f0ac22f82ef49ad0ab3469202f4be33b7d0db8e6bdf1f7e53962b5546a4ec7",
+    "addon/hint/html-hint.js": "398c40038250e1ada2749cfcbd3305085486ad72012b1ae8233ff292d11f8bdf",
+    "addon/hint/css-hint.js": "9f9e81a6ab9b0fa23ecd40e97e1f6822b1be13224a80d5a0007e4baf5b4c0471",
+    "addon/selection/active-line.js": "8a8862483cbb09b0c8f11536dac87664d4e42106f8e088c21c70871cbe2866b0",
+    "addon/comment/comment.js": "70a0f3c39b7aee5295b6564d87b0f888044b9959bbf808611a3ab35e2cda7afe"
+  }
+}

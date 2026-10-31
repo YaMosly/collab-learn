@@ -49,6 +49,8 @@ jobs:
           package-manager-cache: false
       - name: Client tests
         run: node --test tests/*.test.cjs
+      - name: Verify pinned editor assets without network
+        run: python3 tools/vendor-codemirror.py --check
       - name: JavaScript syntax
         run: |
           node --check web/static/js/app.js

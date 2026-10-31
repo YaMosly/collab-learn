@@ -1,6 +1,8 @@
 """Exercise an already running, disposable Compose stack (no production data)."""
 import json
 import http.client
+import hashlib
+from pathlib import Path
 import os
 import subprocess
 import time
@@ -42,6 +44,11 @@ wait_status("/readyz", 200)
 assert request("/")[0] == 200
 assert request("/static/js/app.js")[0] == 200
 assert request("/static/js/retry-policy.js")[0] == 200
+vendor = "vendor/codemirror-5.65.2"
+manifest = json.loads((Path(__file__).resolve().parent.parent / "web/static" / vendor / "manifest.json").read_text())
+for file, digest in manifest["files"].items():
+    status, payload = request("/static/" + vendor + "/" + file)
+    assert status == 200 and hashlib.sha256(payload).hexdigest() == digest, "missing/modified container asset: " + file
 assert request("/livez")[0] == 200
 assert request("/health")[0] == 200
 assert compose("exec", "-T", "app", "id", "-u") == "10001"

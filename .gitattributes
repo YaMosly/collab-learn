@@ -1,0 +1,4 @@
+# Keep upstream assets byte-for-byte identical on every checkout platform.
+web/static/vendor/codemirror-5.65.2/** -text
+# Preserve the single trailing-whitespace line in the original upstream CSS.
+web/static/vendor/codemirror-5.65.2/lib/codemirror.css whitespace=-blank-at-eol
