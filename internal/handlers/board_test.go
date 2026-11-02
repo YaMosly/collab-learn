@@ -63,7 +63,28 @@ func router(m *memoryBoards) http.Handler {
 	r := chi.NewRouter()
 	r.Get("/api/boards/{id}", h.GetBoard)
 	r.Put("/api/boards/{id}", h.UpdateBoard)
+	r.Patch("/api/boards/{id}/title", h.RenameBoard)
 	return r
+}
+
+func (m *memoryBoards) RenameBoard(_ context.Context, id string, revision int64, title string) (*models.Board, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.failure != nil {
+		return nil, m.failure
+	}
+	if id != m.board.ID {
+		return nil, sql.ErrNoRows
+	}
+	copy := m.board
+	if revision != copy.TitleRevision {
+		return &copy, database.ErrConflict
+	}
+	m.writes++
+	m.board.Title = title
+	m.board.TitleRevision++
+	copy = m.board
+	return &copy, nil
 }
 
 func TestWritesRequireExplicitRevisionAndBothFields(t *testing.T) {

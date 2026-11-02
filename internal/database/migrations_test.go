@@ -22,6 +22,7 @@ func TestMigrationTransaction(t *testing.T) {
 			mock.ExpectRollback()
 		} else {
 			mock.ExpectExec("ALTER TABLE boards").WillReturnResult(sqlmock.NewResult(0, 0))
+			mock.ExpectExec("ALTER TABLE boards ADD COLUMN IF NOT EXISTS title").WillReturnResult(sqlmock.NewResult(0, 0))
 			mock.ExpectCommit()
 		}
 		err = (&DB{db}).MigrateContext(context.Background())

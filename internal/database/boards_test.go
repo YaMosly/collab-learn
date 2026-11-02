@@ -12,8 +12,8 @@ import (
 )
 
 func boardRows(revision int64, html, css string) *sqlmock.Rows {
-	return sqlmock.NewRows([]string{"id", "revision", "code_html", "code_css", "created_at", "updated_at"}).
-		AddRow("board-id", revision, html, css, time.Unix(0, 0), time.Unix(1, 0))
+	return sqlmock.NewRows([]string{"id", "revision", "code_html", "code_css", "created_at", "updated_at", "title", "title_revision"}).
+		AddRow("board-id", revision, html, css, time.Unix(0, 0), time.Unix(1, 0), "", 0)
 }
 
 func TestSaveBoardConditionalWrite(t *testing.T) {

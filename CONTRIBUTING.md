@@ -41,6 +41,7 @@ node --test tests/*.test.cjs
 node --check web/static/js/app.js
 node --check web/static/js/document-sync.js
 node --check web/static/js/board-history.js
+node --check web/static/js/board-title.js
 node --check web/static/js/retry-policy.js
 node --check web/static/js/source-export.js
 node --check web/static/js/panel-layout.js

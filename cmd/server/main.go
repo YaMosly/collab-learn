@@ -112,6 +112,7 @@ func run() error {
 		r.With(access.Limit(redisClient, access.Create)).Post("/boards", boardHandler.CreateBoard)
 		r.Get("/boards/{id}", boardHandler.GetBoard)
 		r.Put("/boards/{id}", boardHandler.UpdateBoard)
+		r.Patch("/boards/{id}/title", boardHandler.RenameBoard)
 		r.With(access.Limit(redisClient, access.Socket)).Get("/boards/{id}/ws", wsHandler.HandleWebSocket)
 	})
 

@@ -29,6 +29,17 @@
             <button id="notice-dismiss" class="btn btn-small">Закрыть сообщение</button>
         </div>
     </section>
+    <section id="board-title-bar" class="board-title-bar" aria-label="Название доски" hidden>
+        <h2 id="board-title"></h2>
+        <form id="title-form">
+            <label for="title-input">Название</label>
+            <input id="title-input" type="text" autocomplete="off" placeholder="Без названия" aria-describedby="title-help title-status">
+            <button id="title-save" class="btn btn-small" type="submit">Сохранить название</button>
+            <button id="title-cancel" class="btn btn-small" type="button">Отменить</button>
+        </form>
+        <small id="title-help">До 100 символов. Пустое поле — название по номеру доски.</small>
+        <span id="title-status" role="status" aria-live="polite"></span>
+    </section>
     <section id="sync-status" class="sync-status" aria-label="Сохранение документа" hidden>
         <span id="save-status" role="status" aria-live="polite"></span>
         <span id="draft-warning" role="alert"></span>
@@ -113,6 +124,7 @@
     <script src="/static/vendor/codemirror-5.65.2/addon/comment/comment.js"></script>
     <script src="/static/js/document-sync.js"></script>
     <script src="/static/js/board-history.js"></script>
+    <script src="/static/js/board-title.js"></script>
     <script src="/static/js/retry-policy.js"></script>
     <script src="/static/js/source-export.js"></script>
     <script src="/static/js/panel-layout.js"></script>
