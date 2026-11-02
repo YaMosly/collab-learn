@@ -46,7 +46,7 @@ func (db *DB) MigrateContext(ctx context.Context) error {
 	if _, err := tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock(724061981)"); err != nil {
 		return err
 	}
-	for _, migrationFile := range []string{"001_initial.sql", "002_board_revision.sql"} {
+	for _, migrationFile := range []string{"001_initial.sql", "002_board_revision.sql", "003_board_title.sql"} {
 		content, err := migrations.Files.ReadFile(migrationFile)
 		if err != nil {
 			return fmt.Errorf("read %s: %w", migrationFile, err)

@@ -5,12 +5,14 @@ import (
 )
 
 type Board struct {
-	ID        string    `json:"id"`
-	Revision  int64     `json:"revision"`
-	CodeHTML  string    `json:"code_html"`
-	CodeCSS   string    `json:"code_css"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	Title         string    `json:"title"`
+	TitleRevision int64     `json:"title_revision"`
+	ID            string    `json:"id"`
+	Revision      int64     `json:"revision"`
+	CodeHTML      string    `json:"code_html"`
+	CodeCSS       string    `json:"code_css"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 // A write is conditional on the revision read by this editor. Pointers distinguish

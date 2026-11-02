@@ -46,6 +46,7 @@ assert request("/static/js/app.js")[0] == 200
 assert request("/static/js/retry-policy.js")[0] == 200
 assert request("/static/js/source-export.js")[0] == 200
 assert request("/static/js/panel-layout.js")[0] == 200
+assert request("/static/js/board-title.js")[0] == 200
 vendor = "vendor/codemirror-5.65.2"
 manifest = json.loads((Path(__file__).resolve().parent.parent / "web/static" / vendor / "manifest.json").read_text())
 for file, digest in manifest["files"].items():
@@ -85,6 +86,13 @@ update = {"base_revision": 0, "code_html": "<h1>Compose works</h1>", "code_css":
 status, payload = request(path, "PUT", update)
 assert status == 200 and json.loads(payload)["revision"] == 1, payload
 assert request(path, "PUT", update)[0] == 409
+title = {"title": "<img src=x onerror=alert(1)> Урок 🎉", "base_title_revision": 0}
+assert request(path + "/title", "PATCH", title, headers={"Origin": "https://foreign.example"})[0] == 403
+status, payload = request(path + "/title", "PATCH", title)
+renamed = json.loads(payload)
+assert status == 200 and renamed["title"] == title["title"] and renamed["title_revision"] == 1
+assert renamed["revision"] == 1 and renamed["code_html"] == update["code_html"]
+assert request(path + "/title", "PATCH", {**title, "title": "stale"})[0] == 409
 
 for _ in range(29):
     assert request("/api/boards", "POST")[0] == 201
@@ -105,4 +113,5 @@ wait_status("/readyz", 200)
 status, payload = request(path)
 saved = json.loads(payload)
 assert status == 200 and saved["revision"] == 1 and saved["code_html"] == update["code_html"], payload
+assert saved["title"] == title["title"] and saved["title_revision"] == 1, "title lost after restart"
 print("Compose smoke passed: startup, static files, non-root, isolated databases, CRUD/CAS, outages/recovery, persistence, unlisted links, origins, WebSocket, shared request limits")

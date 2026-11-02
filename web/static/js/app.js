@@ -16,6 +16,7 @@ let retryBlocked = false;
 let boardHistory = null;
 let navigationConfirmed = false;
 let panelLayout = null;
+let boardTitle = null;
 
 document.addEventListener('DOMContentLoaded', () => {
     initializeApp();
@@ -30,6 +31,9 @@ function initializeApp() {
     document.getElementById('share-btn').addEventListener('click', shareBoard);
     document.getElementById('export-html').addEventListener('click', () => exportSource('html'));
     document.getElementById('export-css').addEventListener('click', () => exportSource('css'));
+    document.getElementById('title-form').addEventListener('submit', event => { event.preventDefault(); boardTitle?.save(); });
+    document.getElementById('title-input').addEventListener('input', event => boardTitle?.edit(event.target.value));
+    document.getElementById('title-cancel').addEventListener('click', () => boardTitle?.reset());
     document.getElementById('clear-history').addEventListener('click', () => { boardHistory.clear(); loadBoardsList(); });
     document.getElementById('notice-retry').addEventListener('click', () => { if (!retryPolicy.remaining()) noticeRetry?.(); });
     document.getElementById('notice-dismiss').addEventListener('click', clearNotice);
@@ -40,7 +44,7 @@ function initializeApp() {
         connectWebSocket(currentBoardId);
     });
     window.addEventListener('beforeunload', event => {
-        if (!navigationConfirmed && (documentSync?.dirty || documentSync?.inFlight)) { event.preventDefault(); event.returnValue = ''; }
+        if (!navigationConfirmed && (documentSync?.dirty || documentSync?.inFlight || boardTitle?.dirty || boardTitle?.busy)) { event.preventDefault(); event.returnValue = ''; }
     });
     window.addEventListener('hashchange', handleHashNavigation);
     window.addEventListener('online', resumeConnection);
@@ -64,8 +68,8 @@ function getBoardIdFromURL() {
 
 function handleHashNavigation() {
     if (getBoardIdFromURL() === currentBoardId) return;
-    if ((documentSync?.dirty || documentSync?.inFlight) &&
-        !window.confirm('Есть неподтверждённые изменения. Черновик останется в этой вкладке. Перейти на другую доску?')) {
+    if ((documentSync?.dirty || documentSync?.inFlight || boardTitle?.dirty || boardTitle?.busy) &&
+        !window.confirm('Есть неподтверждённые изменения. Черновик кода останется в этой вкладке, несохранённое название будет потеряно. Перейти на другую доску?')) {
         window.history.replaceState(null, '', `/#board=${encodeURIComponent(currentBoardId)}`);
         return;
     }
@@ -109,7 +113,7 @@ function createBoardElement(board) {
     const div = document.createElement('div');
     div.className = 'board-item';
     const title = document.createElement('h3');
-    title.textContent = `Board ${board.id.substring(0, 8)}`;
+    title.textContent = board.title || `Доска ${board.id.substring(0, 8)}`;
     const opened = document.createElement('p');
     opened.textContent = `Открыта: ${new Date(board.openedAt).toLocaleString()}`;
     div.append(title, opened);
@@ -133,7 +137,18 @@ async function loadBoard(boardId) {
         if (!board || !Number.isSafeInteger(board.revision) || board.revision < 0 ||
             typeof board.code_html !== 'string' || typeof board.code_css !== 'string') throw new Error('Сервер вернул некорректный документ.');
         currentBoardId = boardId;
-        boardHistory.remember(boardId);
+        boardHistory.remember(boardId, Date.now(), board.title);
+        boardTitle = new CollabBoardTitle(board, {
+            changed: renderBoardTitle,
+            write: async update => {
+                const response = await fetchBoardResult(`/api/boards/${encodeURIComponent(boardId)}/title`, {
+                    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(update),
+                });
+                if (!response.ok && response.status !== 409) throw responseError(response);
+                return { conflict: response.status === 409, board: response.board };
+            },
+        });
+        boardTitle.notify();
         
         document.getElementById('boards-list').style.display = 'none';
         document.getElementById('editor-container').style.display = 'flex';
@@ -202,7 +217,11 @@ function initializeEditors(board) {
     try { storage = window.sessionStorage; } catch (_) { storage = null; }
     documentSync = new CollabDocumentSync(board, {
         storage, key: `collablearn:draft:${currentBoardId}`,
-        read: () => fetchBoardJSON(`/api/boards/${encodeURIComponent(currentBoardId)}`),
+        read: async () => {
+            const current = await fetchBoardJSON(`/api/boards/${encodeURIComponent(currentBoardId)}`);
+            boardTitle?.receive(current);
+            return current;
+        },
         write: async update => {
             const response = await fetchBoardResult(`/api/boards/${encodeURIComponent(currentBoardId)}`, {
                 method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(update),
@@ -313,6 +332,7 @@ function resumeConnection() {
 function handleWebSocketMessage(message) {
     switch (message.type) {
         case 'update':
+            boardTitle?.receive(message.data);
             documentSync.receive(message.data);
             break;
             
@@ -327,6 +347,18 @@ function handleWebSocketMessage(message) {
 
 function sendUpdate() {
     return documentSync?.flush();
+}
+
+function renderBoardTitle(state) {
+    document.getElementById('board-title-bar').hidden = false;
+    document.getElementById('board-title').textContent = state.title || `Доска ${currentBoardId.substring(0, 8)}`;
+    const input = document.getElementById('title-input');
+    if (input.value !== state.input) input.value = state.input;
+    input.disabled = state.busy;
+    document.getElementById('title-save').disabled = state.busy || (!state.dirty && !state.error) || retryPolicy.remaining() > 0;
+    document.getElementById('title-cancel').disabled = state.busy;
+    document.getElementById('title-status').textContent = state.error || (state.busy ? 'Сохраняем название…' : state.dirty ? 'Название не сохранено' : '');
+    boardHistory.updateTitle(currentBoardId, state.title);
 }
 
 async function fetchBoardResult(url, options = {}) {
@@ -456,6 +488,7 @@ function updateRetryControls() {
     const save = document.getElementById('retry-save');
     save.disabled = remaining > 0 || !!ws && (ws.readyState === 0 || ws.synchronizing);
     save.textContent = remaining ? label : 'Повторить соединение';
+    if (boardTitle) document.getElementById('title-save').disabled = boardTitle.busy || (!boardTitle.dirty && !boardTitle.error) || remaining > 0;
     if (remaining > 0) cooldownTimer = setTimeout(updateRetryControls, Math.min(1000, remaining));
 }
 

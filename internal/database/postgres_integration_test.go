@@ -1,6 +1,7 @@
 package database
 
 import (
+	"collab-learn/migrations"
 	"context"
 	"database/sql"
 	"errors"
@@ -45,7 +46,21 @@ func TestPostgresConcurrentRevisions(t *testing.T) {
 	db := &DB{pool}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	// Two instances can start together against an empty database.
+	// Upgrade a pre-title installation containing real text, not just an empty DB.
+	for _, name := range []string{"001_initial.sql", "002_board_revision.sql"} {
+		content, err := migrations.Files.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.ExecContext(ctx, string(content)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	legacyID := uuid.NewString()
+	if _, err := db.ExecContext(ctx, "INSERT INTO boards (id,revision,code_html,code_css) VALUES ($1,7,'legacy HTML','legacy CSS')", legacyID); err != nil {
+		t.Fatal(err)
+	}
+	// Two instances can start together against a pre-title installation.
 	migrated := make(chan error, 2)
 	for i := 0; i < 2; i++ {
 		go func() { migrated <- db.MigrateContext(ctx) }()
@@ -57,6 +72,10 @@ func TestPostgresConcurrentRevisions(t *testing.T) {
 	}
 	if err := db.MigrateContext(ctx); err != nil {
 		t.Fatal(err)
+	}
+	legacy, err := db.GetBoard(ctx, legacyID)
+	if err != nil || legacy.Revision != 7 || legacy.CodeHTML != "legacy HTML" || legacy.CodeCSS != "legacy CSS" || legacy.Title != "" || legacy.TitleRevision != 0 {
+		t.Fatal(legacy, err)
 	}
 	id := uuid.NewString()
 	if _, err := db.CreateBoard(ctx, id); err != nil {
@@ -87,5 +106,35 @@ func TestPostgresConcurrentRevisions(t *testing.T) {
 	current, err := db.GetBoard(ctx, id)
 	if err != nil || saved != 1 || conflicts != 1 || current.Revision != 1 {
 		t.Fatalf("saved=%d conflicts=%d board=%+v err=%v", saved, conflicts, current, err)
+	}
+	// Text and title writes can race without invalidating each other's CAS.
+	startHTML := current.CodeHTML
+	errs := make(chan error, 3)
+	for _, title := range []string{"Урок 🎉", "<img src=x onerror=alert(1)>"} {
+		go func(value string) { _, err := db.RenameBoard(ctx, id, 0, value); errs <- err }(title)
+	}
+	go func() { _, err := db.SaveBoard(ctx, id, 1, startHTML+"!", "new CSS"); errs <- err }()
+	saved, conflicts = 0, 0
+	for i := 0; i < 3; i++ {
+		err := <-errs
+		if err == nil {
+			saved++
+		} else if errors.Is(err, ErrConflict) {
+			conflicts++
+		} else {
+			t.Fatal(err)
+		}
+	}
+	current, err = db.GetBoard(ctx, id)
+	if err != nil || saved != 2 || conflicts != 1 || current.Revision != 2 || current.TitleRevision != 1 || current.Title == "" || current.CodeHTML != startHTML+"!" || current.CodeCSS != "new CSS" {
+		t.Fatal(current, err, saved, conflicts)
+	}
+	// Repeated startup migrations preserve both content and metadata.
+	if err := db.MigrateContext(ctx); err != nil {
+		t.Fatal(err)
+	}
+	persisted, err := db.GetBoard(ctx, id)
+	if err != nil || *persisted != *current {
+		t.Fatal(persisted, current, err)
 	}
 }

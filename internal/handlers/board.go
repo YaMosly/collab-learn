@@ -20,6 +20,7 @@ type BoardRepository interface {
 	CreateBoard(context.Context, string) (*models.Board, error)
 	GetBoard(context.Context, string) (*models.Board, error)
 	SaveBoard(context.Context, string, int64, string, string) (*models.Board, error)
+	RenameBoard(context.Context, string, int64, string) (*models.Board, error)
 }
 
 type BoardHandler struct {
@@ -64,6 +65,34 @@ func (h *BoardHandler) GetBoard(w http.ResponseWriter, r *http.Request) {
 		boardError(w, err)
 		return
 	}
+	boardResponse(w, http.StatusOK, board)
+}
+
+func (h *BoardHandler) RenameBoard(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	var update models.TitleWrite
+	if err := decoder.Decode(&update); err != nil || update.Title == nil || update.BaseTitleRevision == nil || *update.BaseTitleRevision < 0 {
+		http.Error(w, "Expected title and base_title_revision (maximum 4 KiB)", http.StatusBadRequest)
+		return
+	}
+	title, valid := models.NormalizeTitle(*update.Title)
+	if !valid || decoder.Decode(new(interface{})) != io.EOF {
+		http.Error(w, "Expected one title of up to 100 Unicode characters, without control characters", http.StatusBadRequest)
+		return
+	}
+	board, err := h.db.RenameBoard(r.Context(), chi.URLParam(r, "id"), *update.BaseTitleRevision, title)
+	if errors.Is(err, database.ErrConflict) {
+		boardResponse(w, http.StatusConflict, board)
+		return
+	}
+	if err != nil {
+		boardError(w, err)
+		return
+	}
+	// Existing periodic resyncs fetch metadata too, including across nodes. Do not
+	// publish this as a document revision: text conflict handling is independent.
 	boardResponse(w, http.StatusOK, board)
 }
 

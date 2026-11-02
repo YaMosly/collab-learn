@@ -46,6 +46,25 @@ function appContext(extra = {}) {
     return context;
 }
 
+test('cached titles are optional, bounded and do not reorder recent boards', () => {
+    const store=memory(JSON.stringify([{id:id(1),openedAt:1}])),history=new BoardHistory(store);
+    assert.deepEqual(history.list(),[{id:id(1),openedAt:1}]);
+    history.remember(id(2),2,'Урок 🎉'); history.updateTitle(id(1),'<b>plain text</b>');
+    assert.deepEqual(history.list(),[{id:id(2),openedAt:2,title:'Урок 🎉'},{id:id(1),openedAt:1,title:'<b>plain text</b>'}]);
+    history.remember(id(2),3);assert.equal(history.list()[0].title,'Урок 🎉');
+    history.updateTitle(id(1),'x'.repeat(101));assert.equal(history.list()[1].title,undefined);
+    history.updateTitle(id(2),'');assert.equal(history.list()[0].title,undefined);
+    history.updateTitle(id(3),'unvisited');assert.equal(history.list().length,2);
+});
+
+test('recent-board titles render as text, without interpreting HTML', () => {
+    const nodes=[];
+    const context=appContext({document:{addEventListener(){},createElement(){const node={append(){},addEventListener(){}};nodes.push(node);return node;}}});
+    vm.runInContext(`createBoardElement({id:'${id(1)}',openedAt:1,title:'<img src=x onerror=alert(1)>'})`,context);
+    assert.equal(nodes[1].textContent,'<img src=x onerror=alert(1)>');
+    assert.equal(nodes[1].innerHTML,undefined);
+});
+
 test('the home page reads local history without requesting the global board directory', () => {
     let fetched = false;
     const elements = new Map([['board-message', {}], ['boards-container', {}]]);
